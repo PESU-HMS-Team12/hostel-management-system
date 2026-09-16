@@ -23,3 +23,8 @@ Requirements analysis, SRS and STP completed.
 
 - [Software Requirements Specification](12_SRS.pdf)
 - [Software Test Plan](12_STP.pdf)
+
+- ## Project Management
+
+- **Jira Scrum Board:** https://pranavatreya.atlassian.net/jira/software/projects/HMS/boards/36/backlog?epics=visible&atlOrigin=eyJpIjoiZjc3ZDQ0Mzk2NjRiNGU0YjhhNTQxN2FhOTkxODdhOTUiLCJwIjoiaiJ9
+- **GitHub Organization:** https://github.com/PESU-HMS-Team12
