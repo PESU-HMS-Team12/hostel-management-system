@@ -15,8 +15,9 @@ allocation history.
 
 ### Current Status
 
-Requirements analysis and SRS completed.
+Requirements analysis, SRS and STP completed.
 
 ### Documentation
 
 - [Software Requirements Specification](12_SRS.pdf)
+- [Software Test Plan](12_STP.pdf)
