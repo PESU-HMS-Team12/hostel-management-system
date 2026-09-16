@@ -8,10 +8,12 @@ allocation history.
 
 ### Team Members
 
-- Pranav Shashikiran Atreya(PES2UG24CS912)
-- Kaushik Balaji(PES2UG24CS220)
-- Kanishk Kartik(PES2UG24CS213)
-- Harshith Manish(PES2UG24CS187)
+## Team Roles
+
+- Pranav Shashikiran Atreya(PES2UG24CS912) — Team Lead / Full-Stack Developer
+- Kaushik Balaji(PES2UG24CS220) — Technical Lead / Full-Stack Developer
+- Kanishk Kartik(PES2UG24CS213) — Developer / Test Engineer
+- Harshith Manish(PES2UG24CS187) — Developer / Test Engineer
 
 ### Current Status
 
