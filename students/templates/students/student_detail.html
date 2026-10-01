@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Student Details - HMS</title>
+</head>
+<body>
+    <h1>Student Details</h1>
+
+    <p><strong>Student ID:</strong> {{ student.student_id }}</p>
+    <p><strong>Name:</strong> {{ student.name }}</p>
+    <p><strong>Contact:</strong> {{ student.contact }}</p>
+    <p><strong>Course:</strong> {{ student.course_program }}</p>
+    <p><strong>Year:</strong> {{ student.year }}</p>
+    <p><strong>Status:</strong> {{ student.status }}</p>
+
+    <p>
+        <a href="{% url 'student_update' student.id %}">Edit</a>
+    </p>
+
+    {% if student.status == "Active" %}
+    <form method="post" action="{% url 'student_deactivate' student.id %}">
+        {% csrf_token %}
+        <button type="submit">Deactivate Student</button>
+    </form>
+    {% endif %}
+
+    <p>
+        <a href="{% url 'student_list' %}">Back to Students</a>
+    </p>
+</body>
+</html>
