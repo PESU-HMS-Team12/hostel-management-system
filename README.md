@@ -2,29 +2,33 @@
 
 ## Team 12
 
-A web-based Hostel Management System for managing students,
-hostels, rooms, room allocation, transfers, vacancies, and
-allocation history.
+A web-based Hostel Management System for managing students, hostels, rooms,
+room allocation, transfers, vacations, and allocation history.
 
-### Team Members
+## Team Members
+
+- Pranav Shashikiran Atreya (PES2UG24CS912)
+- Kaushik Balaji (PES2UG24CS220)
+- Kanishk Karthik (PES2UG24CS213)
+- Harshith Manish (PES2UG24CS187)
 
 ## Team Roles
 
-- Pranav Shashikiran Atreya(PES2UG24CS912) — Team Lead / Full-Stack Developer
-- Kaushik Balaji(PES2UG24CS220) — Technical Lead / Full-Stack Developer
-- Kanishk Kartik(PES2UG24CS213) — Developer / Test Engineer
-- Harshith Manish(PES2UG24CS187) — Developer / Test Engineer
+- Pranav Shashikiran Atreya — Team Lead / Full-Stack Developer
+- Kaushik Balaji — Development Lead / Integration Engineer
+- Kanishk Karthik — Test Engineer / Validation Engineer
+- Harshith Manish — Security & System Test Engineer
 
-### Current Status
+## Project Management
 
-Requirements analysis, SRS and STP completed.
+- Jira Scrum Board: (https://pranavatreya.atlassian.net/jira/software/projects/HMS/boards/36/backlog?epics=visible&atlOrigin=eyJpIjoiZjc3ZDQ0Mzk2NjRiNGU0YjhhNTQxN2FhOTkxODdhOTUiLCJwIjoiaiJ9)
+- GitHub Organization: https://github.com/PESU-HMS-Team12
 
-### Documentation
+## Technology
 
-- [Software Requirements Specification](12_SRS.pdf)
-- [Software Test Plan](12_STP.pdf)
+Python + Django
 
-- ## Project Management
+## Project Documents
 
-- **Jira Scrum Board:** https://pranavatreya.atlassian.net/jira/software/projects/HMS/boards/36/backlog?epics=visible&atlOrigin=eyJpIjoiZjc3ZDQ0Mzk2NjRiNGU0YjhhNTQxN2FhOTkxODdhOTUiLCJwIjoiaiJ9
-- **GitHub Organization:** https://github.com/PESU-HMS-Team12
+- [Software Requirements Specification](./12_SRS.pdf)
+- [Software Test Plan](./12_STP.pdf)
