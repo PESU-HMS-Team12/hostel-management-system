@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Rooms - HMS</title>
+</head>
+<body>
+    <h1>Room Management</h1>
+
+    {% if messages %}
+        {% for message in messages %}
+            <p>{{ message }}</p>
+        {% endfor %}
+    {% endif %}
+
+    <p>
+        <a href="{% url 'room_create' %}">Add Room</a> |
+        <a href="{% url 'hostel_list' %}">View Hostels</a>
+    </p>
+
+    <table border="1" cellpadding="8">
+        <tr>
+            <th>Room ID</th>
+            <th>Hostel</th>
+            <th>Room No.</th>
+            <th>Type</th>
+            <th>Capacity</th>
+            <th>Status</th>
+        </tr>
+
+        {% for room in rooms %}
+        <tr>
+            <td>{{ room.room_id }}</td>
+            <td>{{ room.hostel.name }}</td>
+            <td>{{ room.room_no }}</td>
+            <td>{{ room.room_type }}</td>
+            <td>{{ room.capacity }}</td>
+            <td>{{ room.status }}</td>
+        </tr>
+        {% empty %}
+        <tr>
+            <td colspan="6">No rooms found.</td>
+        </tr>
+        {% endfor %}
+    </table>
+</body>
+</html>

@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Hostels - HMS</title>
+</head>
+<body>
+    <h1>Hostel Management</h1>
+
+    {% if messages %}
+        {% for message in messages %}
+            <p>{{ message }}</p>
+        {% endfor %}
+    {% endif %}
+
+    <p>
+        <a href="{% url 'hostel_create' %}">Add Hostel</a> |
+        <a href="{% url 'room_list' %}">View Rooms</a>
+    </p>
+
+    <table border="1" cellpadding="8">
+        <tr>
+            <th>Hostel ID</th>
+            <th>Name</th>
+            <th>Block / Location</th>
+            <th>Status</th>
+            <th>Action</th>
+        </tr>
+
+        {% for hostel in hostels %}
+        <tr>
+            <td>{{ hostel.hostel_id }}</td>
+            <td>{{ hostel.name }}</td>
+            <td>{{ hostel.block_location }}</td>
+            <td>{{ hostel.status }}</td>
+            <td>
+                <a href="{% url 'hostel_detail' hostel.id %}">
+                    View
+                </a>
+            </td>
+        </tr>
+        {% empty %}
+        <tr>
+            <td colspan="5">No hostels found.</td>
+        </tr>
+        {% endfor %}
+    </table>
+</body>
+</html>
