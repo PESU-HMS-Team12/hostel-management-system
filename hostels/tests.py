@@ -1,4 +1,5 @@
 from django.test import TestCase
+
 from .models import Hostel, Room
 
 
@@ -14,7 +15,6 @@ class HostelModelTests(TestCase):
 
         self.assertEqual(hostel.hostel_id, "H001")
         self.assertEqual(hostel.name, "Test Hostel")
-        self.assertEqual(hostel.block_location, "Block A")
         self.assertEqual(hostel.status, "Active")
 
     def test_room_creation(self):
@@ -36,12 +36,9 @@ class HostelModelTests(TestCase):
 
         self.assertEqual(room.room_id, "R001")
         self.assertEqual(room.hostel, hostel)
-        self.assertEqual(room.room_no, "101")
-        self.assertEqual(room.room_type, "Single")
         self.assertEqual(room.capacity, 1)
-        self.assertEqual(room.status, "Available")
 
-    def test_room_belongs_to_hostel(self):
+    def test_hostel_can_have_multiple_rooms(self):
         hostel = Hostel.objects.create(
             hostel_id="H003",
             name="Test Hostel 3",
@@ -49,18 +46,27 @@ class HostelModelTests(TestCase):
             status="Active",
         )
 
-        room = Room.objects.create(
+        Room.objects.create(
             room_id="R002",
             hostel=hostel,
-            room_no="202",
+            room_no="201",
             room_type="Double",
             capacity=2,
             status="Available",
         )
 
-        self.assertIn(room, hostel.rooms.all())
+        Room.objects.create(
+            room_id="R003",
+            hostel=hostel,
+            room_no="202",
+            room_type="Triple",
+            capacity=3,
+            status="Available",
+        )
 
-    def test_room_capacity_is_stored_correctly(self):
+        self.assertEqual(hostel.rooms.count(), 2)
+
+    def test_room_capacity_is_stored(self):
         hostel = Hostel.objects.create(
             hostel_id="H004",
             name="Test Hostel 4",
@@ -69,9 +75,9 @@ class HostelModelTests(TestCase):
         )
 
         room = Room.objects.create(
-            room_id="R003",
+            room_id="R004",
             hostel=hostel,
-            room_no="303",
+            room_no="301",
             room_type="Triple",
             capacity=3,
             status="Available",

@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Add Room - HMS</title>
+</head>
+<body>
+    <h1>Add Room</h1>
+
+    {% if messages %}
+        {% for message in messages %}
+            <p>{{ message }}</p>
+        {% endfor %}
+    {% endif %}
+
+    <form method="post">
+        {% csrf_token %}
+
+        <p>
+            <label>Room ID:</label><br>
+            <input type="text" name="room_id" required>
+        </p>
+
+        <p>
+            <label>Hostel:</label><br>
+            <select name="hostel_id" required>
+                <option value="">Select Hostel</option>
+                {% for hostel in hostels %}
+                    <option value="{{ hostel.id }}">
+                        {{ hostel.hostel_id }} - {{ hostel.name }}
+                    </option>
+                {% endfor %}
+            </select>
+        </p>
+
+        <p>
+            <label>Room Number:</label><br>
+            <input type="text" name="room_no" required>
+        </p>
+
+        <p>
+            <label>Room Type:</label><br>
+            <input type="text" name="room_type" required>
+        </p>
+
+        <p>
+            <label>Capacity:</label><br>
+            <input type="number" name="capacity" min="1" required>
+        </p>
+
+        <p>
+            <label>Status:</label><br>
+            <select name="status">
+                <option value="Available">Available</option>
+                <option value="Inactive">Inactive</option>
+            </select>
+        </p>
+
+        <button type="submit">Create Room</button>
+    </form>
+
+    <p>
+        <a href="{% url 'room_list' %}">Back</a>
+    </p>
+</body>
+</html>

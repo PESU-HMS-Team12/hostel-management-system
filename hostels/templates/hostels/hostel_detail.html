@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Hostel Details - HMS</title>
+</head>
+<body>
+    <h1>{{ hostel.name }}</h1>
+
+    <p><strong>Hostel ID:</strong> {{ hostel.hostel_id }}</p>
+    <p><strong>Block / Location:</strong> {{ hostel.block_location }}</p>
+    <p><strong>Status:</strong> {{ hostel.status }}</p>
+
+    <p>
+        <a href="{% url 'hostel_update' hostel.id %}">
+            Edit Hostel
+        </a>
+    </p>
+
+    <h2>Rooms</h2>
+
+    <ul>
+        {% for room in hostel.rooms.all %}
+            <li>
+                {{ room.room_no }}
+                — {{ room.room_type }}
+                — Capacity: {{ room.capacity }}
+                — {{ room.status }}
+            </li>
+        {% empty %}
+            <li>No rooms registered.</li>
+        {% endfor %}
+    </ul>
+
+    <p>
+        <a href="{% url 'hostel_list' %}">Back to Hostels</a>
+    </p>
+</body>
+</html>

@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Hostel Form - HMS</title>
+</head>
+<body>
+    <h1>
+        {% if hostel %}
+            Edit Hostel
+        {% else %}
+            Add Hostel
+        {% endif %}
+    </h1>
+
+    {% if messages %}
+        {% for message in messages %}
+            <p>{{ message }}</p>
+        {% endfor %}
+    {% endif %}
+
+    <form method="post">
+        {% csrf_token %}
+
+        {% if not hostel %}
+        <p>
+            <label>Hostel ID:</label><br>
+            <input type="text" name="hostel_id" required>
+        </p>
+        {% endif %}
+
+        <p>
+            <label>Name:</label><br>
+            <input
+                type="text"
+                name="name"
+                value="{{ hostel.name|default:'' }}"
+                required
+            >
+        </p>
+
+        <p>
+            <label>Block / Location:</label><br>
+            <input
+                type="text"
+                name="block_location"
+                value="{{ hostel.block_location|default:'' }}"
+                required
+            >
+        </p>
+
+        <p>
+            <label>Status:</label><br>
+            <select name="status">
+                <option value="Active"
+                    {% if hostel.status == "Active" or not hostel %}
+                    selected
+                    {% endif %}>
+                    Active
+                </option>
+                <option value="Inactive"
+                    {% if hostel.status == "Inactive" %}
+                    selected
+                    {% endif %}>
+                    Inactive
+                </option>
+            </select>
+        </p>
+
+        <button type="submit">Save</button>
+    </form>
+
+    <p>
+        <a href="{% url 'hostel_list' %}">Back</a>
+    </p>
+</body>
+</html>
