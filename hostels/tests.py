@@ -84,3 +84,32 @@ class HostelModelTests(TestCase):
         )
 
         self.assertEqual(room.capacity, 3)
+
+    def test_hostel_string_representation(self):
+        hostel = Hostel.objects.create(
+            hostel_id="H005",
+            name="String Hostel",
+            block_location="Block E",
+            status="Active",
+        )
+
+        self.assertEqual(str(hostel), "String Hostel")
+
+    def test_room_string_representation(self):
+        hostel = Hostel.objects.create(
+            hostel_id="H006",
+            name="Room Test Hostel",
+            block_location="Block F",
+            status="Active",
+        )
+
+        room = Room.objects.create(
+            room_id="R005",
+            hostel=hostel,
+            room_no="401",
+            room_type="Single",
+            capacity=1,
+            status="Available",
+        )
+
+        self.assertEqual(str(room), "Room Test Hostel - 401")
