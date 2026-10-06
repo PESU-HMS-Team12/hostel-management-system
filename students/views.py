@@ -3,6 +3,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 
 from .forms import StudentForm
 from .models import Student
+from auditlog.services import create_audit_log
 
 
 def student_list(request):
@@ -49,7 +50,15 @@ def student_create(request):
         form = StudentForm(request.POST)
 
         if form.is_valid():
-            form.save()
+            student = form.save()
+
+            create_audit_log(
+        request.user,
+        "CREATE",
+        "Student",
+        student.student_id,
+    )
+
             messages.success(request, "Student created successfully.")
             return redirect("student_list")
     else:
@@ -72,7 +81,15 @@ def student_update(request, student_id):
         form = StudentForm(request.POST, instance=student)
 
         if form.is_valid():
-            form.save()
+            student = form.save()
+
+            create_audit_log(
+        request.user,
+        "UPDATE",
+        "Student",
+        student.student_id,
+    )
+
             messages.success(request, "Student updated successfully.")
             return redirect("student_detail", student_id=student.id)
     else:
@@ -94,6 +111,14 @@ def student_deactivate(request, student_id):
     if request.method == "POST":
         student.status = "Inactive"
         student.save(update_fields=["status"])
+
+        create_audit_log(
+    request.user,
+    "UPDATE",
+    "Student",
+    student.student_id,
+)
+
         messages.success(request, "Student deactivated successfully.")
 
     return redirect("student_detail", student_id=student.id)
