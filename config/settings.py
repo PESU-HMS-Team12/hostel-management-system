@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     'students',
     'hostels',
     'allocations',
+    'auditlog',
 ]
 
 MIDDLEWARE = [

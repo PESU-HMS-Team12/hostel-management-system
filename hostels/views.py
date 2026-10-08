@@ -2,6 +2,7 @@ from django.contrib import messages
 from django.shortcuts import get_object_or_404, redirect, render
 
 from .models import Hostel, Room
+from auditlog.services import create_audit_log
 
 
 def hostel_list(request):
@@ -138,13 +139,20 @@ def room_create(request):
         )
 
         room = Room.objects.create(
-            room_id=room_id,
-            hostel=hostel,
-            room_no=room_no,
-            room_type=room_type,
-            capacity=capacity,
-            status=status,
-        )
+    room_id=room_id,
+    hostel=hostel,
+    room_no=room_no,
+    room_type=room_type,
+    capacity=capacity,
+    status=status,
+)
+
+        create_audit_log(
+    request.user,
+    "CREATE",
+    "Room",
+    room.room_id,
+)
 
         messages.success(request, "Room created successfully.")
         return redirect("room_list")
