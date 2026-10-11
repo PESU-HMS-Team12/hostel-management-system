@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Room Allocations | HMS</title>
+</head>
+<body>
+    <h1>Room Allocations</h1>
+
+    {% if messages %}
+        {% for message in messages %}
+            <p role="status">{{ message }}</p>
+        {% endfor %}
+    {% endif %}
+
+    <p>
+        <a href="{% url 'allocation_create' %}">Allocate a Room</a> |
+        <a href="{% url 'room_availability' %}">Room Availability</a> |
+        <a href="{% url 'dashboard' %}">Dashboard</a>
+    </p>
+
+    <form method="get">
+        <label for="q">Search</label>
+        <input
+            id="q"
+            type="text"
+            name="q"
+            value="{{ query }}"
+            placeholder="Student ID, name, room or hostel"
+        >
+
+        <label for="status">Allocation status</label>
+        <select id="status" name="status">
+            <option value="active"
+                {% if selected_status == "active" %}selected{% endif %}>
+                Active
+            </option>
+            <option value="completed"
+                {% if selected_status == "completed" %}selected{% endif %}>
+                Completed
+            </option>
+            <option value="all"
+                {% if selected_status == "all" %}selected{% endif %}>
+                All
+            </option>
+        </select>
+
+        <button type="submit">Search</button>
+    </form>
+
+    <table border="1" cellpadding="8">
+        <thead>
+            <tr>
+                <th>Student ID</th>
+                <th>Student</th>
+                <th>Hostel</th>
+                <th>Room</th>
+                <th>Allocation Date</th>
+                <th>Check-in Date</th>
+                <th>Check-out Date</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for allocation in allocations %}
+                <tr>
+                    <td>{{ allocation.student.student_id }}</td>
+                    <td>{{ allocation.student.name }}</td>
+                    <td>{{ allocation.room.hostel.name }}</td>
+                    <td>{{ allocation.room.room_no }}</td>
+                    <td>{{ allocation.allocation_date }}</td>
+                    <td>{{ allocation.check_in_date|default:"—" }}</td>
+                    <td>{{ allocation.check_out_date|default:"—" }}</td>
+                    <td>
+                        {% if allocation.check_out_date %}
+                            Completed
+                        {% else %}
+                            Active
+                        {% endif %}
+                    </td>
+                </tr>
+            {% empty %}
+                <tr>
+                    <td colspan="8">No matching allocations found.</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>
