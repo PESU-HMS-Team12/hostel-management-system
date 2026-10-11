@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Create Allocation | HMS</title>
+</head>
+<body>
+    <h1>Allocate Student to Room</h1>
+
+    {% if messages %}
+        {% for message in messages %}
+            <p role="status">{{ message }}</p>
+        {% endfor %}
+    {% endif %}
+
+    {% if form.non_field_errors %}
+        <div role="alert">
+            {% for error in form.non_field_errors %}
+                <p>{{ error }}</p>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    <form method="post">
+        {% csrf_token %}
+
+        {{ form.as_p }}
+
+        <button type="submit">Create Allocation</button>
+    </form>
+
+    <p>
+        <a href="{% url 'allocation_list' %}">Back to Allocations</a> |
+        <a href="{% url 'room_availability' %}">Room Availability</a>
+    </p>
+</body>
+</html>
