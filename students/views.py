@@ -4,8 +4,9 @@ from django.shortcuts import get_object_or_404, redirect, render
 from .forms import StudentForm
 from .models import Student
 from auditlog.services import create_audit_log
+from accounts.decorators import role_required
 
-
+@role_required("WARDEN", "ADMINISTRATOR")
 def student_list(request):
     students = Student.objects.all().order_by("student_id")
 
@@ -34,7 +35,7 @@ def student_list(request):
         },
     )
 
-
+@role_required("WARDEN", "ADMINISTRATOR")
 def student_detail(request, student_id):
     student = get_object_or_404(Student, id=student_id)
 
@@ -44,7 +45,7 @@ def student_detail(request, student_id):
         {"student": student},
     )
 
-
+@role_required("WARDEN", "ADMINISTRATOR")
 def student_create(request):
     if request.method == "POST":
         form = StudentForm(request.POST)
@@ -73,7 +74,7 @@ def student_create(request):
         },
     )
 
-
+@role_required("WARDEN", "ADMINISTRATOR")
 def student_update(request, student_id):
     student = get_object_or_404(Student, id=student_id)
 
@@ -104,7 +105,7 @@ def student_update(request, student_id):
         },
     )
 
-
+@role_required("WARDEN", "ADMINISTRATOR")
 def student_deactivate(request, student_id):
     student = get_object_or_404(Student, id=student_id)
 

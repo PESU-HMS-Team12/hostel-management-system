@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login | Hostel Management System</title>
+</head>
+<body>
+    <main>
+        <h1>Hostel Management System</h1>
+        <h2>Sign in</h2>
+
+        {% if messages %}
+            {% for message in messages %}
+                <p role="alert">{{ message }}</p>
+            {% endfor %}
+        {% endif %}
+
+        <form method="post">
+            {% csrf_token %}
+
+            <input type="hidden" name="next" value="{{ next }}">
+
+            <p>
+                <label for="username">Username or email</label><br>
+                <input
+                    id="username"
+                    type="text"
+                    name="username"
+                    autocomplete="username"
+                    required
+                    autofocus
+                >
+            </p>
+
+            <p>
+                <label for="password">Password</label><br>
+                <input
+                    id="password"
+                    type="password"
+                    name="password"
+                    autocomplete="current-password"
+                    required
+                >
+            </p>
+
+            <button type="submit">Sign in</button>
+        </form>
+    </main>
+</body>
+</html>

@@ -3,8 +3,9 @@ from django.shortcuts import get_object_or_404, redirect, render
 
 from .models import Hostel, Room
 from auditlog.services import create_audit_log
+from accounts.decorators import role_required
 
-
+@role_required("WARDEN", "ADMINISTRATOR")
 def hostel_list(request):
     hostels = Hostel.objects.all().order_by("hostel_id")
     return render(
@@ -13,7 +14,7 @@ def hostel_list(request):
         {"hostels": hostels},
     )
 
-
+@role_required("WARDEN", "ADMINISTRATOR")
 def hostel_create(request):
     if request.method == "POST":
         hostel_id = request.POST.get("hostel_id", "").strip()
@@ -41,7 +42,7 @@ def hostel_create(request):
 
     return render(request, "hostels/hostel_form.html")
 
-
+@role_required("WARDEN", "ADMINISTRATOR")
 def hostel_detail(request, hostel_id):
     hostel = get_object_or_404(
         Hostel.objects.prefetch_related("rooms"),
@@ -54,7 +55,7 @@ def hostel_detail(request, hostel_id):
         {"hostel": hostel},
     )
 
-
+@role_required("WARDEN", "ADMINISTRATOR")
 def hostel_update(request, hostel_id):
     hostel = get_object_or_404(Hostel, id=hostel_id)
 
@@ -79,7 +80,7 @@ def hostel_update(request, hostel_id):
         {"hostel": hostel},
     )
 
-
+@role_required("WARDEN", "ADMINISTRATOR")
 def room_list(request):
     rooms = Room.objects.select_related("hostel").all().order_by(
         "hostel__hostel_id",
@@ -92,7 +93,7 @@ def room_list(request):
         {"rooms": rooms},
     )
 
-
+@role_required("WARDEN", "ADMINISTRATOR")
 def room_create(request):
     hostels = Hostel.objects.filter(status="Active").order_by("hostel_id")
 
