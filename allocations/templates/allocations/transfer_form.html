@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Transfer Allocation | HMS</title>
+</head>
+<body>
+    <main>
+        <h1>Transfer Room Allocation</h1>
+
+        <h2>Current Allocation</h2>
+        <p>
+            Student ID: {{ allocation.student.student_id }}
+        </p>
+        <p>
+            Student Name: {{ allocation.student.name }}
+        </p>
+        <p>
+            Current Hostel: {{ allocation.room.hostel.name }}
+        </p>
+        <p>
+            Current Room: {{ allocation.room.room_no }}
+        </p>
+
+        <p>
+            Select a destination room and transfer date.
+            The current allocation will be retained as history.
+        </p>
+
+        <form method="post">
+            {% csrf_token %}
+            {{ form.as_p }}
+
+            <button type="submit">Confirm Transfer</button>
+        </form>
+
+        <p>
+            <a href="{% url 'allocation_list' %}">
+                Cancel and Return to Allocations
+            </a>
+        </p>
+    </main>
+</body>
+</html>

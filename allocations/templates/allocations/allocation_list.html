@@ -60,6 +60,9 @@
                 <th>Check-in Date</th>
                 <th>Check-out Date</th>
                 <th>Status</th>
+                <th>Check-out Date</th>
+                <th>Status</th>
+                <th>Actions</th>
             </tr>
         </thead>
         <tbody>
@@ -79,10 +82,23 @@
                             Active
                         {% endif %}
                     </td>
+                    <td>
+                        {% if not allocation.check_out_date %}
+                            <a href="{% url 'allocation_transfer' allocation.pk %}">
+                                Transfer
+                            </a>
+                            |
+                            <a href="{% url 'allocation_vacate' allocation.pk %}">
+                                Vacate
+                            </a>
+                        {% else %}
+                            —
+                        {% endif %}
+                    </td>
                 </tr>
             {% empty %}
                 <tr>
-                    <td colspan="8">No matching allocations found.</td>
+                    <td colspan="9">No matching allocations found.</td>
                 </tr>
             {% endfor %}
         </tbody>
