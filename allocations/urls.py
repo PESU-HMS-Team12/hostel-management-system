@@ -11,4 +11,14 @@ urlpatterns = [
         views.room_availability,
         name="room_availability",
     ),
+    path(
+        "<int:allocation_id>/transfer/",
+        views.allocation_transfer,
+        name="allocation_transfer",
+    ),
+    path(
+        "<int:allocation_id>/vacate/",
+        views.allocation_vacate,
+        name="allocation_vacate",
+    ),
 ]

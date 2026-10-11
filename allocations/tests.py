@@ -1,8 +1,7 @@
-from datetime import date
-
+from datetime import date, timedelta
 from django.core.exceptions import ValidationError
 from django.test import TestCase
-
+from auditlog.models import AuditLog
 from allocations.models import Allocation
 from hostels.models import Hostel, Room
 from students.models import Student
@@ -249,3 +248,264 @@ class AllocationWorkflowViewTests(TestCase):
         self.assertFalse(
             form.fields["room"].queryset.filter(pk=self.room.pk).exists()
         )
+
+
+class AllocationTransferVacationViewTests(TestCase):
+
+    def setUp(self):
+        User = get_user_model()
+
+        self.hostel = Hostel.objects.create(
+            hostel_id="TV-H001",
+            name="Transfer Vacation Hostel",
+            block_location="Block TV",
+            status="Active",
+        )
+
+        self.source_room = Room.objects.create(
+            room_id="TV-R001",
+            hostel=self.hostel,
+            room_no="TV101",
+            room_type="Double",
+            capacity=2,
+            status="Available",
+        )
+
+        self.target_room = Room.objects.create(
+            room_id="TV-R002",
+            hostel=self.hostel,
+            room_no="TV102",
+            room_type="Double",
+            capacity=2,
+            status="Available",
+        )
+
+        self.student = Student.objects.create(
+            student_id="TV-S001",
+            name="Transfer Vacation Student",
+            contact="9888888888",
+            course_program="CSE",
+            year=2,
+            status="Active",
+        )
+
+        self.warden = User.objects.create_user(
+            username="transfer_vacation_warden",
+            password="TestPassword!482",
+        )
+
+        RoleProfile.objects.create(
+            user=self.warden,
+            role=RoleProfile.Role.WARDEN,
+        )
+
+        self.client.force_login(self.warden)
+
+    def create_active_allocation(self, student=None, room=None):
+        start_date = timezone.localdate() - timedelta(days=3)
+
+        return Allocation.objects.create(
+            student=student or self.student,
+            room=room or self.source_room,
+            allocation_date=start_date,
+            check_in_date=start_date,
+        )
+
+    def test_warden_can_transfer_active_allocation(self):
+        allocation = self.create_active_allocation()
+        today = timezone.localdate()
+
+        response = self.client.post(
+            reverse(
+                "allocation_transfer",
+                kwargs={"allocation_id": allocation.pk},
+            ),
+            {
+                "new_room": self.target_room.pk,
+                "transfer_date": today.isoformat(),
+            },
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("allocation_list"),
+        )
+
+        allocation.refresh_from_db()
+        self.assertEqual(allocation.check_out_date, today)
+
+        active_allocation = Allocation.objects.get(
+            student=self.student,
+            check_out_date__isnull=True,
+        )
+
+        self.assertEqual(active_allocation.room, self.target_room)
+        self.assertEqual(active_allocation.check_in_date, today)
+
+        # The original allocation remains in the database.
+        self.assertEqual(
+            Allocation.objects.filter(student=self.student).count(),
+            2,
+        )
+
+        # The transfer records both the old and new allocation changes.
+        logs = AuditLog.objects.filter(entity_type="Allocation")
+
+        self.assertEqual(logs.count(), 2)
+        self.assertSetEqual(
+            set(logs.values_list("action_type", flat=True)),
+            {"UPDATE", "CREATE"},
+        )
+
+    def test_warden_can_vacate_active_allocation(self):
+        allocation = self.create_active_allocation()
+        today = timezone.localdate()
+
+        response = self.client.post(
+            reverse(
+                "allocation_vacate",
+                kwargs={"allocation_id": allocation.pk},
+            ),
+            {"checkout_date": today.isoformat()},
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("allocation_list"),
+        )
+
+        allocation.refresh_from_db()
+
+        self.assertEqual(allocation.check_out_date, today)
+        self.assertFalse(
+            Allocation.objects.filter(
+                student=self.student,
+                check_out_date__isnull=True,
+            ).exists()
+        )
+
+        self.assertTrue(
+            AuditLog.objects.filter(
+                action_type="UPDATE",
+                entity_type="Allocation",
+                record_id=str(allocation.pk),
+            ).exists()
+        )
+
+    def test_vacation_rejects_checkout_before_checkin(self):
+        allocation = self.create_active_allocation()
+        invalid_date = (
+            allocation.check_in_date - timedelta(days=1)
+        )
+
+        response = self.client.post(
+            reverse(
+                "allocation_vacate",
+                kwargs={"allocation_id": allocation.pk},
+            ),
+            {"checkout_date": invalid_date.isoformat()},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "Check-out date cannot be before check-in date.",
+        )
+
+        allocation.refresh_from_db()
+        self.assertIsNone(allocation.check_out_date)
+
+    def test_transfer_does_not_close_allocation_if_target_is_full(self):
+        allocation = self.create_active_allocation()
+
+        # Make the target room full.
+        self.target_room.capacity = 1
+        self.target_room.save(update_fields=["capacity"])
+
+        other_student = Student.objects.create(
+            student_id="TV-S002",
+            name="Other Student",
+            contact="9777777777",
+            course_program="CSE",
+            year=2,
+            status="Active",
+        )
+
+        self.create_active_allocation(
+            student=other_student,
+            room=self.target_room,
+        )
+
+        today = timezone.localdate()
+
+        response = self.client.post(
+            reverse(
+                "allocation_transfer",
+                kwargs={"allocation_id": allocation.pk},
+            ),
+            {
+                "new_room": self.target_room.pk,
+                "transfer_date": today.isoformat(),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        # Failed transfer must leave the old allocation active.
+        allocation.refresh_from_db()
+        self.assertIsNone(allocation.check_out_date)
+
+        self.assertEqual(
+            Allocation.objects.filter(
+                student=self.student,
+            ).count(),
+            1,
+        )
+
+    def test_student_cannot_transfer_or_vacate_allocations(self):
+        allocation = self.create_active_allocation()
+        User = get_user_model()
+
+        student_user = User.objects.create_user(
+            username="transfer_vacation_student",
+            password="TestPassword!482",
+        )
+
+        RoleProfile.objects.create(
+            user=student_user,
+            role=RoleProfile.Role.STUDENT,
+            student=self.student,
+        )
+
+        self.client.force_login(student_user)
+
+        transfer_response = self.client.get(
+            reverse(
+                "allocation_transfer",
+                kwargs={"allocation_id": allocation.pk},
+            )
+        )
+
+        vacation_response = self.client.get(
+            reverse(
+                "allocation_vacate",
+                kwargs={"allocation_id": allocation.pk},
+            )
+        )
+
+        self.assertEqual(transfer_response.status_code, 403)
+        self.assertEqual(vacation_response.status_code, 403)
+
+    def test_anonymous_user_must_log_in_before_transfer(self):
+        allocation = self.create_active_allocation()
+        self.client.logout()
+
+        response = self.client.get(
+            reverse(
+                "allocation_transfer",
+                kwargs={"allocation_id": allocation.pk},
+            )
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/accounts/login/", response.url)

@@ -60,3 +60,111 @@ class AllocationForm(forms.ModelForm):
             .select_related("hostel")
             .order_by("hostel__name", "room_no")
         )
+
+class TransferAllocationForm(forms.Form):
+    new_room = forms.ModelChoiceField(
+        queryset=Room.objects.none(),
+        label="Destination room",
+        empty_label="Select a destination room",
+    )
+
+    transfer_date = forms.DateField(
+        label="Transfer date",
+        widget=forms.DateInput(attrs={"type": "date"}),
+    )
+
+    def __init__(self, *args, allocation, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.allocation = allocation
+
+        self.fields["transfer_date"].initial = timezone.localdate()
+
+        # Show only available rooms in active hostels that have capacity.
+        # The room the student currently occupies is not a transfer target.
+        self.fields["new_room"].queryset = (
+            Room.objects
+            .filter(
+                status="Available",
+                hostel__status="Active",
+            )
+            .exclude(pk=allocation.room_id)
+            .annotate(
+                active_occupancy=Count(
+                    "allocations",
+                    filter=Q(
+                        allocations__check_out_date__isnull=True
+                    ),
+                )
+            )
+            .filter(active_occupancy__lt=F("capacity"))
+            .select_related("hostel")
+            .order_by("hostel__name", "room_no")
+        )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        transfer_date = cleaned_data.get("transfer_date")
+
+        if transfer_date:
+            if transfer_date > timezone.localdate():
+                self.add_error(
+                    "transfer_date",
+                    "Transfer date cannot be in the future.",
+                )
+
+            earliest_date = (
+                self.allocation.check_in_date
+                or self.allocation.allocation_date
+            )
+
+            if transfer_date < earliest_date:
+                self.add_error(
+                    "transfer_date",
+                    "Transfer date cannot be before the current "
+                    "allocation's start date.",
+                )
+
+        return cleaned_data
+
+
+class VacationAllocationForm(forms.Form):
+    checkout_date = forms.DateField(
+        label="Check-out date",
+        widget=forms.DateInput(attrs={"type": "date"}),
+    )
+
+    def __init__(self, *args, allocation, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.allocation = allocation
+
+        self.fields["checkout_date"].initial = timezone.localdate()
+
+    def clean(self):
+        cleaned_data = super().clean()
+        checkout_date = cleaned_data.get("checkout_date")
+
+        if checkout_date:
+            if checkout_date > timezone.localdate():
+                self.add_error(
+                    "checkout_date",
+                    "Check-out date cannot be in the future.",
+                )
+
+            earliest_date = (
+                self.allocation.check_in_date
+                or self.allocation.allocation_date
+            )
+
+            if checkout_date < earliest_date:
+                if self.allocation.check_in_date:
+                    error_message = (
+                        "Check-out date cannot be before check-in date."
+                    )
+                else:
+                    error_message = (
+                        "Check-out date cannot be before allocation date."
+                    )
+
+                self.add_error("checkout_date", error_message)
+
+        return cleaned_data

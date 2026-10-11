@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Record Vacation | HMS</title>
+</head>
+<body>
+    <main>
+        <h1>Record Student Vacation</h1>
+
+        <h2>Current Allocation</h2>
+        <p>
+            Student ID: {{ allocation.student.student_id }}
+        </p>
+        <p>
+            Student Name: {{ allocation.student.name }}
+        </p>
+        <p>
+            Hostel: {{ allocation.room.hostel.name }}
+        </p>
+        <p>
+            Room: {{ allocation.room.room_no }}
+        </p>
+
+        <p>
+            Submitting this form will mark this allocation as completed.
+            The allocation record will remain in the history.
+        </p>
+
+        <form method="post">
+            {% csrf_token %}
+            {{ form.as_p }}
+
+            <button type="submit">Confirm Vacation</button>
+        </form>
+
+        <p>
+            <a href="{% url 'allocation_list' %}">
+                Cancel and Return to Allocations
+            </a>
+        </p>
+    </main>
+</body>
+</html>
