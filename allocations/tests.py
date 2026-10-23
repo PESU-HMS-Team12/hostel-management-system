@@ -1,15 +1,17 @@
 from datetime import date, timedelta
+
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.test import TestCase
-from auditlog.models import AuditLog
-from allocations.models import Allocation
-from hostels.models import Hostel, Room
-from students.models import Student
-from django.contrib.auth import get_user_model
 from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import RoleProfile
+from allocations.models import Allocation
+from auditlog.models import AuditLog
+from hostels.models import Hostel, Room
+from students.models import Student
+
 
 class AllocationValidationTests(TestCase):
 
@@ -112,6 +114,7 @@ class AllocationValidationTests(TestCase):
                 check_out_date=date(2026, 1, 5),
             )
 
+
 class AllocationWorkflowViewTests(TestCase):
 
     def setUp(self):
@@ -158,6 +161,127 @@ class AllocationWorkflowViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Room Allocations")
+
+    # HMS-24: Allocation history search and filtering tests.
+
+    def test_allocation_history_search_by_student_id(self):
+        Allocation.objects.create(
+            student=self.student,
+            room=self.room,
+            allocation_date=date(2026, 1, 1),
+            check_in_date=date(2026, 1, 2),
+        )
+
+        response = self.client.get(
+            reverse("allocation_list"),
+            {"q": self.student.student_id, "status": "all"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, self.student.student_id)
+        self.assertContains(response, self.student.name)
+
+    def test_allocation_history_active_filter(self):
+        active_allocation = Allocation.objects.create(
+            student=self.student,
+            room=self.room,
+            allocation_date=date(2026, 1, 1),
+            check_in_date=date(2026, 1, 2),
+        )
+
+        completed_student = Student.objects.create(
+            student_id="WF-S002",
+            name="Completed History Student",
+            contact="9999999998",
+            course_program="CSE",
+            year=2,
+            status="Active",
+        )
+
+        Allocation.objects.create(
+            student=completed_student,
+            room=self.room,
+            allocation_date=date(2025, 12, 1),
+            check_in_date=date(2025, 12, 2),
+            check_out_date=date(2025, 12, 10),
+        )
+
+        response = self.client.get(
+            reverse("allocation_list"),
+            {"status": "active"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, active_allocation.student.student_id)
+        self.assertNotContains(response, completed_student.student_id)
+
+    def test_allocation_history_completed_filter(self):
+        completed_student = Student.objects.create(
+            student_id="WF-S003",
+            name="Completed Student",
+            contact="9999999997",
+            course_program="CSE",
+            year=2,
+            status="Active",
+        )
+
+        Allocation.objects.create(
+            student=completed_student,
+            room=self.room,
+            allocation_date=date(2025, 12, 1),
+            check_in_date=date(2025, 12, 2),
+            check_out_date=date(2025, 12, 10),
+        )
+
+        Allocation.objects.create(
+            student=self.student,
+            room=self.room,
+            allocation_date=date(2026, 1, 1),
+            check_in_date=date(2026, 1, 2),
+        )
+
+        response = self.client.get(
+            reverse("allocation_list"),
+            {"status": "completed"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, completed_student.student_id)
+        self.assertNotContains(response, self.student.student_id)
+
+    def test_allocation_history_all_filter(self):
+        completed_student = Student.objects.create(
+            student_id="WF-S004",
+            name="Historical Student",
+            contact="9999999996",
+            course_program="CSE",
+            year=2,
+            status="Active",
+        )
+
+        Allocation.objects.create(
+            student=self.student,
+            room=self.room,
+            allocation_date=date(2026, 1, 1),
+            check_in_date=date(2026, 1, 2),
+        )
+
+        Allocation.objects.create(
+            student=completed_student,
+            room=self.room,
+            allocation_date=date(2025, 12, 1),
+            check_in_date=date(2025, 12, 2),
+            check_out_date=date(2025, 12, 10),
+        )
+
+        response = self.client.get(
+            reverse("allocation_list"),
+            {"status": "all"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, self.student.student_id)
+        self.assertContains(response, completed_student.student_id)
 
     def test_warden_can_create_allocation(self):
         today = timezone.localdate()
@@ -394,9 +518,7 @@ class AllocationTransferVacationViewTests(TestCase):
 
     def test_vacation_rejects_checkout_before_checkin(self):
         allocation = self.create_active_allocation()
-        invalid_date = (
-            allocation.check_in_date - timedelta(days=1)
-        )
+        invalid_date = allocation.check_in_date - timedelta(days=1)
 
         response = self.client.post(
             reverse(
