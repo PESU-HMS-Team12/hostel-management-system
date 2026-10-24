@@ -189,6 +189,18 @@ class AllocationWorkflowViewTests(TestCase):
             check_in_date=date(2026, 1, 2),
         )
 
+        response = self.client.get(
+            reverse("allocation_list"),
+            {"status": "active"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+    		response,
+   		active_allocation.allocation_date.strftime("%b. %-d, %Y"),
+        )
+        self.assertContains(response, "Active")
+
         completed_student = Student.objects.create(
             student_id="WF-S002",
             name="Completed History Student",
@@ -211,8 +223,7 @@ class AllocationWorkflowViewTests(TestCase):
             {"status": "active"},
         )
 
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, active_allocation.student.student_id)
+        self.assertContains(response, self.student.student_id)
         self.assertNotContains(response, completed_student.student_id)
 
     def test_allocation_history_completed_filter(self):
@@ -233,6 +244,15 @@ class AllocationWorkflowViewTests(TestCase):
             check_out_date=date(2025, 12, 10),
         )
 
+        response = self.client.get(
+            reverse("allocation_list"),
+            {"status": "completed"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, completed_student.student_id)
+        self.assertContains(response, "Completed")
+
         Allocation.objects.create(
             student=self.student,
             room=self.room,
@@ -245,11 +265,12 @@ class AllocationWorkflowViewTests(TestCase):
             {"status": "completed"},
         )
 
-        self.assertEqual(response.status_code, 200)
         self.assertContains(response, completed_student.student_id)
         self.assertNotContains(response, self.student.student_id)
 
     def test_allocation_history_all_filter(self):
+        active_student = self.student
+
         completed_student = Student.objects.create(
             student_id="WF-S004",
             name="Historical Student",
@@ -260,7 +281,7 @@ class AllocationWorkflowViewTests(TestCase):
         )
 
         Allocation.objects.create(
-            student=self.student,
+            student=active_student,
             room=self.room,
             allocation_date=date(2026, 1, 1),
             check_in_date=date(2026, 1, 2),
@@ -280,7 +301,7 @@ class AllocationWorkflowViewTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, self.student.student_id)
+        self.assertContains(response, active_student.student_id)
         self.assertContains(response, completed_student.student_id)
 
     def test_warden_can_create_allocation(self):
@@ -466,13 +487,11 @@ class AllocationTransferVacationViewTests(TestCase):
         self.assertEqual(active_allocation.room, self.target_room)
         self.assertEqual(active_allocation.check_in_date, today)
 
-        # The original allocation remains in the database.
         self.assertEqual(
             Allocation.objects.filter(student=self.student).count(),
             2,
         )
 
-        # The transfer records both the old and new allocation changes.
         logs = AuditLog.objects.filter(entity_type="Allocation")
 
         self.assertEqual(logs.count(), 2)
@@ -540,7 +559,6 @@ class AllocationTransferVacationViewTests(TestCase):
     def test_transfer_does_not_close_allocation_if_target_is_full(self):
         allocation = self.create_active_allocation()
 
-        # Make the target room full.
         self.target_room.capacity = 1
         self.target_room.save(update_fields=["capacity"])
 
@@ -573,14 +591,11 @@ class AllocationTransferVacationViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
 
-        # Failed transfer must leave the old allocation active.
         allocation.refresh_from_db()
         self.assertIsNone(allocation.check_out_date)
 
         self.assertEqual(
-            Allocation.objects.filter(
-                student=self.student,
-            ).count(),
+            Allocation.objects.filter(student=self.student).count(),
             1,
         )
 
@@ -631,3 +646,116 @@ class AllocationTransferVacationViewTests(TestCase):
 
         self.assertEqual(response.status_code, 302)
         self.assertIn("/accounts/login/", response.url)
+
+
+class AllocationAuditIntegrationTests(TestCase):
+    """Integration tests for allocations and audit logging."""
+
+    def setUp(self):
+        User = get_user_model()
+
+        self.hostel = Hostel.objects.create(
+            hostel_id="INT-H001",
+            name="Integration Hostel",
+            block_location="Integration Block",
+            status="Active",
+        )
+
+        self.room = Room.objects.create(
+            room_id="INT-R001",
+            hostel=self.hostel,
+            room_no="INT101",
+            room_type="Double",
+            capacity=2,
+            status="Available",
+        )
+
+        self.student = Student.objects.create(
+            student_id="INT-S001",
+            name="Integration Student",
+            contact="9000000001",
+            course_program="CSE",
+            year=2,
+            status="Active",
+        )
+
+        self.warden = User.objects.create_user(
+            username="integration_warden",
+            password="TestPassword!482",
+        )
+
+        RoleProfile.objects.create(
+            user=self.warden,
+            role=RoleProfile.Role.WARDEN,
+        )
+
+        self.client.force_login(self.warden)
+
+    def test_creating_allocation_creates_audit_log(self):
+        """Creating an allocation should also create its audit log."""
+        today = timezone.localdate()
+
+        response = self.client.post(
+            reverse("allocation_create"),
+            {
+                "student": self.student.pk,
+                "room": self.room.pk,
+                "allocation_date": today.isoformat(),
+                "check_in_date": today.isoformat(),
+            },
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("allocation_list"),
+        )
+
+        allocation = Allocation.objects.get(
+            student=self.student,
+            check_out_date__isnull=True,
+        )
+
+        self.assertTrue(
+            AuditLog.objects.filter(
+                user=self.warden,
+                action_type="CREATE",
+                entity_type="Allocation",
+                record_id=str(allocation.pk),
+            ).exists()
+        )
+
+    def test_invalid_allocation_does_not_create_audit_log(self):
+        """A rejected allocation should not create an audit log."""
+        today = timezone.localdate()
+
+        Allocation.objects.create(
+            student=self.student,
+            room=self.room,
+            allocation_date=today,
+            check_in_date=today,
+        )
+
+        response = self.client.post(
+            reverse("allocation_create"),
+            {
+                "student": self.student.pk,
+                "room": self.room.pk,
+                "allocation_date": today.isoformat(),
+                "check_in_date": today.isoformat(),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        self.assertEqual(
+            Allocation.objects.filter(student=self.student).count(),
+            1,
+        )
+
+        self.assertFalse(
+            AuditLog.objects.filter(
+                user=self.warden,
+                action_type="CREATE",
+                entity_type="Allocation",
+            ).exists()
+        )
