@@ -4,6 +4,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from .models import Hostel, Room
 from auditlog.services import create_audit_log
 from accounts.decorators import role_required
+from allocations.models import Allocation
 
 @role_required("WARDEN", "ADMINISTRATOR")
 def hostel_list(request):
@@ -162,4 +163,83 @@ def room_create(request):
         request,
         "hostels/room_form.html",
         {"hostels": hostels},
+    )
+
+@role_required("WARDEN", "ADMINISTRATOR")
+def room_update(request, room_id):
+    room = get_object_or_404(
+        Room.objects.select_related("hostel"),
+        id=room_id,
+    )
+    hostels = Hostel.objects.filter(status="Active").order_by("hostel_id")
+
+    if request.method == "POST":
+        room_id_value = request.POST.get("room_id", "").strip()
+        room_no = request.POST.get("room_no", "").strip()
+        room_type = request.POST.get("room_type", "").strip()
+        status = request.POST.get("status", "").strip()
+        hostel_id = request.POST.get("hostel_id", "").strip()
+
+        try:
+            capacity = int(request.POST.get("capacity", "0"))
+        except (TypeError, ValueError):
+            capacity = 0
+
+        if not all([room_id_value, room_no, room_type, status, hostel_id]):
+            messages.error(request, "All room fields must be provided.")
+        elif capacity <= 0:
+            messages.error(request, "Room capacity must be greater than zero.")
+        elif Room.objects.filter(room_id=room_id_value).exclude(pk=room.pk).exists():
+            messages.error(request, "Room ID already exists.")
+        elif Room.objects.filter(
+            hostel_id=hostel_id,
+            room_no=room_no,
+        ).exclude(pk=room.pk).exists():
+            messages.error(
+                request,
+                "This room number already exists in the selected hostel.",
+            )
+        else:
+            hostel = get_object_or_404(
+                Hostel,
+                id=hostel_id,
+                status="Active",
+            )
+
+            active_occupancy = Allocation.objects.filter(
+                room=room,
+                check_out_date__isnull=True,
+            ).count()
+
+            if capacity < active_occupancy:
+                messages.error(
+                    request,
+                    f"Capacity cannot be less than current occupancy ({active_occupancy}).",
+                )
+            else:
+                room.room_id = room_id_value
+                room.hostel = hostel
+                room.room_no = room_no
+                room.room_type = room_type
+                room.capacity = capacity
+                room.status = status
+                room.save()
+
+                create_audit_log(
+                    request.user,
+                    "UPDATE",
+                    "Room",
+                    room.room_id,
+                )
+
+                messages.success(request, "Room updated successfully.")
+                return redirect("room_list")
+
+    return render(
+        request,
+        "hostels/room_form.html",
+        {
+            "room": room,
+            "hostels": hostels,
+        },
     )

@@ -1,10 +1,11 @@
+
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Add Room - HMS</title>
+    <title>{% if room %}Edit Room{% else %}Add Room{% endif %} - HMS</title>
 </head>
 <body>
-    <h1>Add Room</h1>
+    <h1>{% if room %}Edit Room{% else %}Add Room{% endif %}</h1>
 
     {% if messages %}
         {% for message in messages %}
@@ -16,16 +17,18 @@
         {% csrf_token %}
 
         <p>
-            <label>Room ID:</label><br>
-            <input type="text" name="room_id" required>
+            <label for="room_id">Room ID:</label><br>
+            <input id="room_id" type="text" name="room_id"
+                   value="{{ room.room_id|default:'' }}" required>
         </p>
 
         <p>
-            <label>Hostel:</label><br>
-            <select name="hostel_id" required>
+            <label for="hostel_id">Hostel:</label><br>
+            <select id="hostel_id" name="hostel_id" required>
                 <option value="">Select Hostel</option>
                 {% for hostel in hostels %}
-                    <option value="{{ hostel.id }}">
+                    <option value="{{ hostel.id }}"
+                        {% if room and room.hostel_id == hostel.id %}selected{% endif %}>
                         {{ hostel.hostel_id }} - {{ hostel.name }}
                     </option>
                 {% endfor %}
@@ -33,33 +36,38 @@
         </p>
 
         <p>
-            <label>Room Number:</label><br>
-            <input type="text" name="room_no" required>
+            <label for="room_no">Room Number:</label><br>
+            <input id="room_no" type="text" name="room_no"
+                   value="{{ room.room_no|default:'' }}" required>
         </p>
 
         <p>
-            <label>Room Type:</label><br>
-            <input type="text" name="room_type" required>
+            <label for="room_type">Room Type:</label><br>
+            <input id="room_type" type="text" name="room_type"
+                   value="{{ room.room_type|default:'' }}" required>
         </p>
 
         <p>
-            <label>Capacity:</label><br>
-            <input type="number" name="capacity" min="1" required>
+            <label for="capacity">Capacity:</label><br>
+            <input id="capacity" type="number" name="capacity" min="1"
+                   value="{{ room.capacity|default:'' }}" required>
         </p>
 
         <p>
-            <label>Status:</label><br>
-            <select name="status">
-                <option value="Available">Available</option>
-                <option value="Inactive">Inactive</option>
+            <label for="status">Status:</label><br>
+            <select id="status" name="status" required>
+                <option value="Available"
+                    {% if room.status == "Available" %}selected{% endif %}>Available</option>
+                <option value="Inactive"
+                    {% if room.status == "Inactive" %}selected{% endif %}>Inactive</option>
             </select>
         </p>
 
-        <button type="submit">Create Room</button>
+        <button type="submit">
+            {% if room %}Save Changes{% else %}Create Room{% endif %}
+        </button>
     </form>
 
-    <p>
-        <a href="{% url 'room_list' %}">Back</a>
-    </p>
+    <p><a href="{% url 'room_list' %}">Back to Rooms</a></p>
 </body>
 </html>
