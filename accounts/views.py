@@ -5,11 +5,13 @@ from django.contrib.auth import (
     login,
     logout,
 )
+
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import redirect, render
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
+from allocations.models import Allocation
 from .decorators import get_user_role
 from .models import RoleProfile
 
@@ -134,10 +136,24 @@ def my_profile(request):
             "This account is not linked to a student record."
         )
 
+    allocation = (
+        Allocation.objects
+        .select_related("room", "room__hostel")
+        .filter(
+            student=profile.student,
+            check_out_date__isnull=True,
+        )
+        .order_by("-allocation_date")
+        .first()
+    )
+
     return render(
         request,
         "accounts/my_profile.html",
-        {"student": profile.student},
+        {
+            "student": profile.student,
+            "allocation": allocation,
+        },
     )
 
 

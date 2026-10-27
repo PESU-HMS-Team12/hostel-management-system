@@ -1,11 +1,16 @@
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.template import response
 from django.test import TestCase
 from django.urls import reverse
 
 from students.models import Student
 from .models import RoleProfile
 
+from datetime import date
+
+from allocations.models import Allocation
+from hostels.models import Hostel, Room
 
 User = get_user_model()
 
@@ -147,6 +152,82 @@ class RoleAuthorizationTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "TEST-STUDENT-001")
         self.assertContains(response, "Student Test")
+        self.assertIsNone(response.context["allocation"])
+        self.assertContains(
+            response,
+            "You do not currently have an active room allocation.",
+        )
+
+    def test_student_profile_displays_current_allocation(self):
+        hostel = Hostel.objects.create(
+            hostel_id="PROFILE-H001",
+            name="Profile Test Hostel",
+            block_location="Profile Block",
+        )
+
+        room = Room.objects.create(
+            room_id="PROFILE-R001",
+            hostel=hostel,
+            room_no="P101",
+            room_type="Single",
+            capacity=1,
+        )
+
+        allocation = Allocation.objects.create(
+            student=self.student_record,
+            room=room,
+            allocation_date=date(2026, 10, 1),
+            check_in_date=date(2026, 10, 2),
+        )
+
+        self.client.force_login(self.student_user)
+        response = self.client.get(reverse("my_profile"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+          response.context["allocation"].pk,
+          allocation.pk,
+        )
+        self.assertContains(response, "Profile Test Hostel")
+        self.assertContains(response, "P101")
+        self.assertContains(response, "01 Oct 2026")
+        self.assertContains(response, "02 Oct 2026")
+        self.assertContains(response, "Active")
+
+    def test_student_profile_does_not_show_completed_allocation_as_current(self):
+        hostel = Hostel.objects.create(
+            hostel_id="PROFILE-H002",
+            name="Previous Hostel",
+            block_location="Previous Block",
+        )
+
+        room = Room.objects.create(
+            room_id="PROFILE-R002",
+            hostel=hostel,
+            room_no="P102",
+            room_type="Single",
+            capacity=1,
+        )
+
+        Allocation.objects.create(
+            student=self.student_record,
+            room=room,
+            allocation_date=date(2026, 9, 1),
+            check_in_date=date(2026, 9, 2),
+            check_out_date=date(2026, 9, 10),
+        )
+
+        self.client.force_login(self.student_user)
+        response = self.client.get(reverse("my_profile"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.context["allocation"])
+        self.assertContains(
+            response,
+            "You do not currently have an active room allocation.",
+        )
+        self.assertNotContains(response, "Previous Hostel")
+        self.assertNotContains(response, "P102")
 
     def test_student_cannot_access_staff_student_list(self):
         self.client.force_login(self.student_user)

@@ -2,7 +2,11 @@
 <!DOCTYPE html>
 <html>
 <head>
+
     <title>{% if room %}Edit Room{% else %}Add Room{% endif %} - HMS</title>
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'accounts/css/hms.css' %}">
+
 </head>
 <body>
     <h1>{% if room %}Edit Room{% else %}Add Room{% endif %}</h1>
