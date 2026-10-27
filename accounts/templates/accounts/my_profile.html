@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>My Profile | Hostel Management System</title>
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'accounts/css/hms.css' %}">
 </head>
 <body>
     <main>
@@ -15,6 +17,39 @@
         <p><strong>Course/Program:</strong> {{ student.course_program }}</p>
         <p><strong>Year:</strong> {{ student.year }}</p>
         <p><strong>Status:</strong> {{ student.status }}</p>
+        <section aria-labelledby="allocation-heading">
+            <h2 id="allocation-heading">Current Room Allocation</h2>
+
+            {% if allocation %}
+                <p>
+                    <strong>Hostel:</strong>
+                    {{ allocation.room.hostel.name }}
+                </p>
+
+                <p>
+                    <strong>Room Number:</strong>
+                    {{ allocation.room.room_no }}
+                </p>
+
+                <p>
+                    <strong>Allocation Date:</strong>
+                    {{ allocation.allocation_date|date:"d M Y" }}
+                </p>
+
+                <p>
+                    <strong>Check-in Date:</strong>
+                    {% if allocation.check_in_date %}
+                        {{ allocation.check_in_date|date:"d M Y" }}
+                    {% else %}
+                        Not recorded
+                    {% endif %}
+                </p>
+
+                <p><strong>Allocation Status:</strong> Active</p>
+            {% else %}
+                <p>You do not currently have an active room allocation.</p>
+            {% endif %}
+        </section>
 
         <p>
             <a href="{% url 'dashboard' %}">Back to Dashboard</a>

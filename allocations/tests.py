@@ -196,8 +196,8 @@ class AllocationWorkflowViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(
-    		response,
-   		active_allocation.allocation_date.strftime("%b. %-d, %Y"),
+            response,
+            active_allocation.allocation_date.strftime("%b. %d, %Y").replace(" 0", " "),
         )
         self.assertContains(response, "Active")
 
