@@ -27,6 +27,7 @@
             <th>Type</th>
             <th>Capacity</th>
             <th>Status</th>
+            <th>Actions</th>
         </tr>
 
         {% for room in rooms %}
@@ -37,10 +38,13 @@
             <td>{{ room.room_type }}</td>
             <td>{{ room.capacity }}</td>
             <td>{{ room.status }}</td>
+            <td>
+                <a href="{% url 'room_update' room.id %}">Edit</a>
+            </td>
         </tr>
         {% empty %}
         <tr>
-            <td colspan="6">No rooms found.</td>
+            <td colspan="7">No rooms found.</td>
         </tr>
         {% endfor %}
     </table>
