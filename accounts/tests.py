@@ -229,6 +229,46 @@ class RoleAuthorizationTests(TestCase):
         self.assertNotContains(response, "Previous Hostel")
         self.assertNotContains(response, "P102")
 
+    def test_student_profile_does_not_show_another_students_allocation(self):
+        other_student = Student.objects.create(
+            student_id="TEST-STUDENT-002",
+            name="Another Student",
+            contact="8888888888",
+            course_program="Computer Science",
+            year=2,
+            status="Active",
+        )
+        hostel = Hostel.objects.create(
+            hostel_id="PROFILE-H003",
+            name="Another Student Hostel",
+            block_location="Other Block",
+        )
+        room = Room.objects.create(
+            room_id="PROFILE-R003",
+            hostel=hostel,
+            room_no="P103",
+            room_type="Single",
+            capacity=1,
+        )
+        Allocation.objects.create(
+            student=other_student,
+            room=room,
+            allocation_date=date(2026, 10, 1),
+            check_in_date=date(2026, 10, 2),
+        )
+
+        self.client.force_login(self.student_user)
+        response = self.client.get(reverse("my_profile"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.context["allocation"])
+        self.assertContains(
+            response,
+            "You do not currently have an active room allocation.",
+        )
+        self.assertNotContains(response, "Another Student Hostel")
+        self.assertNotContains(response, "P103")
+
     def test_student_cannot_access_staff_student_list(self):
         self.client.force_login(self.student_user)
 

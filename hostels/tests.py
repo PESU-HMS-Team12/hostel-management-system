@@ -223,6 +223,80 @@ class RoomUpdateTests(TestCase):
         self.room.refresh_from_db()
         self.assertEqual(self.room.room_type, "Double")
 
+    def test_administrator_can_edit_room(self):
+        administrator = User.objects.create_superuser(
+            username="room_edit_admin",
+            email="room-admin@example.com",
+            password="TestPassword!482",
+        )
+        self.client.force_login(administrator)
+
+        response = self.client.post(
+            self.url,
+            self.room_data(room_type="Triple", capacity="3"),
+        )
+
+        self.assertRedirects(response, reverse("room_list"))
+        self.room.refresh_from_db()
+        self.assertEqual(self.room.room_type, "Triple")
+        self.assertEqual(self.room.capacity, 3)
+
+    def test_zero_capacity_is_rejected(self):
+        self.client.force_login(self.warden)
+
+        response = self.client.post(self.url, self.room_data(capacity="0"))
+
+        self.assertEqual(response.status_code, 200)
+        self.room.refresh_from_db()
+        self.assertEqual(self.room.capacity, 2)
+
+    def test_capacity_cannot_be_reduced_below_positive_active_occupancy(self):
+        second_student = Student.objects.create(
+            student_id="EDIT-STUDENT-002",
+            name="Second Room Edit Student",
+            contact="8888888888",
+            course_program="Computer Science",
+            year=2,
+            status="Active",
+        )
+        Allocation.objects.create(
+            student=self.student_record,
+            room=self.room,
+            allocation_date="2026-10-01",
+        )
+        Allocation.objects.create(
+            student=second_student,
+            room=self.room,
+            allocation_date="2026-10-02",
+        )
+        self.client.force_login(self.warden)
+
+        response = self.client.post(self.url, self.room_data(capacity="1"))
+
+        self.assertEqual(response.status_code, 200)
+        self.room.refresh_from_db()
+        self.assertEqual(self.room.capacity, 2)
+
+    def test_room_edit_preserves_existing_allocation_history(self):
+        allocation = Allocation.objects.create(
+            student=self.student_record,
+            room=self.room,
+            allocation_date="2026-10-01",
+        )
+        self.client.force_login(self.warden)
+
+        response = self.client.post(
+            self.url,
+            self.room_data(room_type="Triple", capacity="3"),
+        )
+
+        self.assertRedirects(response, reverse("room_list"))
+        allocation.refresh_from_db()
+        self.assertEqual(allocation.room_id, self.room.pk)
+        self.assertEqual(allocation.student_id, self.student_record.pk)
+        self.assertEqual(str(allocation.allocation_date), "2026-10-01")
+        self.assertIsNone(allocation.check_out_date)
+
     def test_duplicate_room_number_in_same_hostel_is_rejected(self):
         Room.objects.create(
             room_id="EDIT-R002",
