@@ -1,29 +1,155 @@
-name: CI
+name: HMS CI/CD Pipeline
 
 on:
   push:
+    branches:
+      - main
+      - "HMS-*"
+      - "feat/*"
+      - "fix/*"
+      - "chore/*"
   pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  test:
+  backend:
+    name: Backend CI & Quality Analysis
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: hms_test
+          POSTGRES_USER: hms_user
+          POSTGRES_PASSWORD: hms_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DJANGO_DEBUG: "false"
+      DJANGO_SECRET_KEY: "ci-secret-key-for-automated-testing-only"
+      DATABASE_URL: "postgresql://hms_user:hms_password@localhost:5432/hms_test"
+      SECURE_SSL_REDIRECT: "false"
+      CONN_MAX_AGE: "0"
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Set up Python
+      - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: "pip"
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run Django checks
+      - name: Run Django system checks
         run: python manage.py check
 
-      - name: Run tests
-        run: python manage.py test
+      - name: Verify database migration consistency
+        run: python manage.py makemigrations --check --dry-run
+
+      - name: Apply migrations against PostgreSQL
+        run: python manage.py migrate
+
+      - name: Validate OpenAPI 3.0 schema generation
+        run: python manage.py spectacular --validate --file schema.yml
+
+      - name: Collect static assets
+        run: python manage.py collectstatic --noinput
+
+      - name: Run automated test suite against PostgreSQL with coverage
+        run: coverage run -m manage test
+
+      - name: Generate coverage report
+        run: |
+          coverage report
+          coverage xml -o coverage.xml
+
+      - name: Upload coverage report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage-report
+          path: coverage.xml
+          retention-days: 7
+
+      - name: SonarCloud Quality Analysis
+        uses: SonarSource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        continue-on-error: true
+
+  frontend:
+    name: Frontend CI (ON HOLD — Awaiting Next.js Merge)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Inspect frontend availability
+        id: check_frontend
+        run: |
+          if [ -f "package.json" ]; then
+            echo "Frontend configuration detected (package.json found)."
+            echo "frontend_exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Frontend codebase is not present on this branch."
+            echo "frontend_exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Node.js 20 (LTS)
+        if: steps.check_frontend.outputs.frontend_exists == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies using lockfile
+        if: steps.check_frontend.outputs.frontend_exists == 'true'
+        run: npm ci
+
+      - name: Run ESLint
+        if: steps.check_frontend.outputs.frontend_exists == 'true'
+        run: npm run lint
+
+      - name: Run TypeScript type check
+        if: steps.check_frontend.outputs.frontend_exists == 'true'
+        run: npx tsc --noEmit
+
+      - name: Run frontend tests with coverage
+        if: steps.check_frontend.outputs.frontend_exists == 'true'
+        run: npm test -- --coverage
+
+      - name: Build Next.js production bundle
+        if: steps.check_frontend.outputs.frontend_exists == 'true'
+        run: npm run build
+
+      - name: Report frontend ON HOLD status
+        if: steps.check_frontend.outputs.frontend_exists == 'false'
+        run: |
+          echo "================================================================================"
+          echo "STATUS: FRONTEND CI IS ON HOLD"
+          echo "Missing Prerequisite: The Next.js frontend is maintained by teammates in a"
+          echo "separate branch and has not yet been merged into this repository branch."
+          echo "Prepared Pipeline: Node.js 20 LTS, npm ci, ESLint, TypeScript, tests, and build."
+          echo "Action Required: Merge frontend pull request to activate frontend verification."
+          echo "================================================================================"

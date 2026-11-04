@@ -11,10 +11,11 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
 import os
+from pathlib import Path
+import sys
 
+import dj_database_url
 from django.core.exceptions import ImproperlyConfigured
-from pathlib import Path
-from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -39,7 +40,11 @@ if not SECRET_KEY:
             "Set DJANGO_SECRET_KEY when DJANGO_DEBUG is false."
         )
 
-ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
+allowed_hosts_env = os.environ.get("ALLOWED_HOSTS")
+if allowed_hosts_env:
+    ALLOWED_HOSTS = [host.strip() for host in allowed_hosts_env.split(",") if host.strip()]
+else:
+    ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
 
 
 # Application definition
@@ -51,15 +56,23 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    # Third-party apps
+    'corsheaders',
+    'rest_framework',
+    'drf_spectacular',
+    # Core domain apps
     'students',
     'hostels',
     'allocations',
     'auditlog',
     'accounts',
+    'api',
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -91,12 +104,87 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.1/ref/settings/#databases
 
+database_url = os.environ.get("DATABASE_URL")
+if not database_url and os.environ.get("POSTGRES_DB"):
+    pg_user = os.environ.get("POSTGRES_USER", "postgres")
+    pg_password = os.environ.get("POSTGRES_PASSWORD", "")
+    pg_host = os.environ.get("POSTGRES_HOST", "localhost")
+    pg_port = os.environ.get("POSTGRES_PORT", "5432")
+    pg_db = os.environ.get("POSTGRES_DB")
+    database_url = f"postgresql://{pg_user}:{pg_password}@{pg_host}:{pg_port}/{pg_db}"
+
+conn_max_age_env = os.environ.get("CONN_MAX_AGE")
+if conn_max_age_env is not None:
+    conn_max_age = int(conn_max_age_env)
+elif "test" in sys.argv:
+    conn_max_age = 0
+else:
+    conn_max_age = 600
+
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
+    'default': dj_database_url.config(
+        default=database_url or f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
+        conn_max_age=conn_max_age,
+        conn_health_checks=True,
+    )
 }
+
+
+# Django REST Framework configuration
+# Enforces SessionAuthentication with CSRF protection and role-based permissions
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.SessionAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    'DEFAULT_RENDERER_CLASSES': [
+        'rest_framework.renderers.JSONRenderer',
+        'rest_framework.renderers.BrowsableAPIRenderer',
+    ],
+    'EXCEPTION_HANDLER': 'api.exceptions.custom_exception_handler',
+}
+
+# OpenAPI Schema generation via drf-spectacular
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Hostel Management System API',
+    'DESCRIPTION': (
+        'Versioned REST API for Hostel Management System (HMS), supporting '
+        'authentication, student records, hostels, rooms, room allocations, '
+        'transfers, vacations, and reports.'
+    ),
+    'VERSION': 'v1',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'COMPONENT_SPLIT_REQUEST': True,
+}
+
+
+# Cross-Origin Resource Sharing (CORS) settings
+
+CORS_ALLOW_CREDENTIALS = True
+cors_origins_env = os.environ.get("CORS_ALLOWED_ORIGINS", "")
+if cors_origins_env:
+    CORS_ALLOWED_ORIGINS = [origin.strip() for origin in cors_origins_env.split(",") if origin.strip()]
+else:
+    CORS_ALLOWED_ORIGIN_REGEXES = [
+        r"^https?://localhost(:\d+)?$",
+        r"^https?://127\.0\.0\.1(:\d+)?$",
+    ]
+
+csrf_trusted_origins_env = os.environ.get("CSRF_TRUSTED_ORIGINS", "")
+if csrf_trusted_origins_env:
+    CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in csrf_trusted_origins_env.split(",") if origin.strip()]
+else:
+    CSRF_TRUSTED_ORIGINS = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+    ]
 
 
 # Password validation
@@ -134,6 +222,15 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.1/howto/static-files/
 
 STATIC_URL = '/static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
 
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
@@ -159,5 +256,9 @@ SESSION_COOKIE_SAMESITE = "Lax"
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
 
-# Require HTTPS outside development
-SECURE_SSL_REDIRECT = not DEBUG
+# Require HTTPS outside development; can be explicitly configured via environment (e.g. disabled for CI test suites)
+secure_ssl_redirect_env = os.environ.get("SECURE_SSL_REDIRECT")
+if secure_ssl_redirect_env is not None:
+    SECURE_SSL_REDIRECT = secure_ssl_redirect_env.lower() in {"1", "true", "yes"}
+else:
+    SECURE_SSL_REDIRECT = not DEBUG

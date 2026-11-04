@@ -20,6 +20,25 @@ class Allocation(models.Model):
     check_in_date = models.DateField(null=True, blank=True)
     check_out_date = models.DateField(null=True, blank=True)
 
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["student"],
+                condition=models.Q(check_out_date__isnull=True),
+                name="unique_active_student_allocation",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["student", "check_out_date"],
+                name="idx_alloc_student_checkout",
+            ),
+            models.Index(
+                fields=["room", "check_out_date"],
+                name="idx_alloc_room_checkout",
+            ),
+        ]
+
     def clean(self):
         errors = {}
 

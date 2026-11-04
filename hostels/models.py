@@ -16,12 +16,24 @@ class Room(models.Model):
     hostel = models.ForeignKey(
         Hostel,
         on_delete=models.CASCADE,
-        related_name="rooms"
+        related_name="rooms",
     )
     room_no = models.CharField(max_length=20)
     room_type = models.CharField(max_length=50)
     capacity = models.PositiveIntegerField()
     status = models.CharField(max_length=20, default="Available")
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(capacity__gt=0),
+                name="check_positive_room_capacity",
+            ),
+            models.UniqueConstraint(
+                fields=["hostel", "room_no"],
+                name="unique_hostel_room_no",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.hostel.name} - {self.room_no}"
