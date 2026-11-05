@@ -132,7 +132,7 @@ export function AdminDashboardView() {
               </p>
             </div>
             <Link
-              href="/admin/users#role-management"
+              href="/admin/users"
               className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
             >
               Assign roles

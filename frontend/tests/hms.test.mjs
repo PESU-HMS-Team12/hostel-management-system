@@ -480,13 +480,57 @@ describe("HMS-33 Automated Frontend Validation Suite", () => {
       );
 
       // Valid role assignment for user 7 (Sneha Hegde -> PES2UG25CS105)
-      const { updated } = demoAssignRole(state, {
+      const studentPayload = validation.buildRoleAssignmentPayload({
         user_id: 7,
         role: "STUDENT",
         student_id: "PES2UG25CS105",
       });
+      assert.deepEqual(studentPayload, {
+        user_id: 7,
+        role: "STUDENT",
+        student_id: "PES2UG25CS105",
+      });
+
+      const { nextState: stateAfterStudent, updated } = demoAssignRole(
+        state,
+        studentPayload
+      );
       assert.equal(updated.role, "STUDENT");
       assert.equal(updated.student_id, "PES2UG25CS105");
+
+      // Assigning WARDEN or ADMINISTRATOR omits student_id from payload and unlinks student record
+      const wardenPayload = validation.buildRoleAssignmentPayload({
+        user_id: 7,
+        role: "WARDEN",
+        student_id: "PES2UG25CS105",
+      });
+      assert.deepEqual(wardenPayload, {
+        user_id: 7,
+        role: "WARDEN",
+      });
+      assert.equal("student_id" in wardenPayload, false);
+
+      const { nextState: stateAfterWarden, updated: updatedWarden } =
+        demoAssignRole(stateAfterStudent, wardenPayload);
+      assert.equal(updatedWarden.role, "WARDEN");
+      assert.equal(updatedWarden.student_id, null);
+
+      const adminPayload = validation.buildRoleAssignmentPayload({
+        user_id: 7,
+        role: "ADMINISTRATOR",
+      });
+      assert.deepEqual(adminPayload, {
+        user_id: 7,
+        role: "ADMINISTRATOR",
+      });
+      assert.equal("student_id" in adminPayload, false);
+
+      const { updated: updatedAdmin } = demoAssignRole(
+        stateAfterWarden,
+        adminPayload
+      );
+      assert.equal(updatedAdmin.role, "ADMINISTRATOR");
+      assert.equal(updatedAdmin.student_id, null);
     });
 
     it("computes accurate occupancy and allocation reports from state", () => {
@@ -521,5 +565,466 @@ describe("HMS-33 Automated Frontend Validation Suite", () => {
         "Room capacity must be greater than zero."
       );
     });
+  });
+});
+
+
+const shellMod = await jiti.import("@/components/hms-shell");
+const {
+  isRouteAllowedForRole,
+  getRoleHomePath,
+  getNavigationForRole,
+  isNavItemActive,
+} = shellMod;
+const { validateStudentSignup } = validation;
+const { demoSignupStudent, demoApproveUser } = fixtures;
+
+describe("6. Authentication, Student Self-Registration, Admin Approval & Route Guards", () => {
+  it("exposes Role Management (/admin/users) only to ADMINISTRATOR in sidebar and highlights it when active", () => {
+    const studentNav = getNavigationForRole("STUDENT");
+    const wardenNav = getNavigationForRole("WARDEN");
+    const adminNav = getNavigationForRole("ADMINISTRATOR");
+
+    assert.equal(
+      studentNav.some((item) => item.label === "Role Management"),
+      false
+    );
+    assert.equal(
+      studentNav.some((item) => item.href.startsWith("/admin/users")),
+      false
+    );
+    assert.equal(
+      wardenNav.some((item) => item.label === "Role Management"),
+      false
+    );
+    assert.equal(
+      wardenNav.some((item) => item.href.startsWith("/admin/users")),
+      false
+    );
+
+    const roleMgmtItem = adminNav.find(
+      (item) => item.label === "Role Management"
+    );
+    assert.ok(roleMgmtItem, "ADMINISTRATOR sidebar must include Role Management");
+    assert.equal(roleMgmtItem.href, "/admin/users");
+    assert.equal(isNavItemActive("/admin/users", roleMgmtItem.href), true);
+    assert.equal(isNavItemActive("/dashboard/admin", roleMgmtItem.href), false);
+  });
+
+  it("enforces strict role-based route permissions for STUDENT, WARDEN, and ADMINISTRATOR", () => {
+    // Unauthenticated (null role) cannot access any protected route
+    assert.equal(isRouteAllowedForRole("/dashboard/student", null), false);
+    assert.equal(isRouteAllowedForRole("/students", null), false);
+
+    // STUDENT can only access /dashboard/student (and / or /dashboard redirect entrypoints)
+    assert.equal(isRouteAllowedForRole("/dashboard/student", "STUDENT"), true);
+    assert.equal(isRouteAllowedForRole("/dashboard/warden", "STUDENT"), false);
+    assert.equal(isRouteAllowedForRole("/dashboard/admin", "STUDENT"), false);
+    assert.equal(isRouteAllowedForRole("/students", "STUDENT"), false);
+    assert.equal(isRouteAllowedForRole("/students/new", "STUDENT"), false);
+    assert.equal(isRouteAllowedForRole("/students/1", "STUDENT"), false);
+    assert.equal(isRouteAllowedForRole("/hostels", "STUDENT"), false);
+    assert.equal(isRouteAllowedForRole("/rooms", "STUDENT"), false);
+    assert.equal(isRouteAllowedForRole("/allocations", "STUDENT"), false);
+    assert.equal(isRouteAllowedForRole("/reports", "STUDENT"), false);
+    assert.equal(isRouteAllowedForRole("/admin/users", "STUDENT"), false);
+    assert.equal(isRouteAllowedForRole("/settings", "STUDENT"), false);
+
+    // WARDEN can access operational modules and /dashboard/warden, but NOT /admin/users or /dashboard/admin
+    assert.equal(isRouteAllowedForRole("/dashboard/warden", "WARDEN"), true);
+    assert.equal(isRouteAllowedForRole("/students", "WARDEN"), true);
+    assert.equal(isRouteAllowedForRole("/students/new", "WARDEN"), true);
+    assert.equal(isRouteAllowedForRole("/students/1", "WARDEN"), true);
+    assert.equal(isRouteAllowedForRole("/hostels", "WARDEN"), true);
+    assert.equal(isRouteAllowedForRole("/rooms", "WARDEN"), true);
+    assert.equal(isRouteAllowedForRole("/allocations", "WARDEN"), true);
+    assert.equal(isRouteAllowedForRole("/reports", "WARDEN"), true);
+    assert.equal(isRouteAllowedForRole("/settings", "WARDEN"), true);
+    assert.equal(isRouteAllowedForRole("/admin/users", "WARDEN"), false);
+    assert.equal(isRouteAllowedForRole("/dashboard/admin", "WARDEN"), false);
+    assert.equal(isRouteAllowedForRole("/dashboard/student", "WARDEN"), false);
+
+    // ADMINISTRATOR can access /dashboard/admin, /admin/users, and all Warden modules
+    assert.equal(
+      isRouteAllowedForRole("/dashboard/admin", "ADMINISTRATOR"),
+      true
+    );
+    assert.equal(isRouteAllowedForRole("/admin/users", "ADMINISTRATOR"), true);
+    assert.equal(isRouteAllowedForRole("/students", "ADMINISTRATOR"), true);
+    assert.equal(isRouteAllowedForRole("/hostels", "ADMINISTRATOR"), true);
+    assert.equal(isRouteAllowedForRole("/rooms", "ADMINISTRATOR"), true);
+    assert.equal(isRouteAllowedForRole("/allocations", "ADMINISTRATOR"), true);
+    assert.equal(isRouteAllowedForRole("/reports", "ADMINISTRATOR"), true);
+    assert.equal(isRouteAllowedForRole("/settings", "ADMINISTRATOR"), true);
+
+    assert.equal(getRoleHomePath("STUDENT"), "/dashboard/student");
+    assert.equal(getRoleHomePath("WARDEN"), "/dashboard/warden");
+    assert.equal(getRoleHomePath("ADMINISTRATOR"), "/dashboard/admin");
+  });
+
+  it("validates student self-registration fields and password rules", () => {
+    const emptyErrors = validateStudentSignup({
+      student_id: "",
+      contact: "123",
+      email: "invalid-email",
+      username: "ab",
+      password: "12345678",
+      confirm_password: "different",
+    });
+    assert.ok(emptyErrors.student_id);
+    assert.ok(emptyErrors.contact);
+    assert.ok(emptyErrors.email);
+    assert.ok(emptyErrors.username);
+    assert.equal(
+      emptyErrors.password,
+      "Password cannot be entirely numeric."
+    );
+    assert.equal(
+      emptyErrors.confirm_password,
+      "Password and confirmation password do not match."
+    );
+
+    const validErrors = validateStudentSignup({
+      student_id: "PES2UG23EC042",
+      contact: "+91 98450 11203",
+      email: "rohan.verma@stu.pes.edu",
+      username: "rohan.verma",
+      password: "StrongPassword!2026",
+      confirm_password: "StrongPassword!2026",
+    });
+    assert.equal(Object.keys(validErrors).length, 0);
+  });
+
+  it("handles student self-registration in pending state and administrator account approval", () => {
+    const state = createInitialDemoState();
+
+    // 1. Reject mismatched contact number for active student PES2UG23EC042
+    assert.throws(
+      () =>
+        demoSignupStudent(state, {
+          student_id: "PES2UG23EC042",
+          contact: "+91 00000 00000",
+          email: "rohan.verma@stu.pes.edu",
+          username: "rohan.verma",
+          password: "StrongPassword!2026",
+          confirm_password: "StrongPassword!2026",
+        }),
+      /No active student record matches/
+    );
+
+    // 2. Reject inactive student PES2UG22EE033 (Karthik Reddy)
+    assert.throws(
+      () =>
+        demoSignupStudent(state, {
+          student_id: "PES2UG22EE033",
+          contact: "+91 98450 11207",
+          email: "karthik@stu.pes.edu",
+          username: "karthik.reddy",
+          password: "StrongPassword!2026",
+          confirm_password: "StrongPassword!2026",
+        }),
+      /No active student record matches/
+    );
+
+    // 3. Reject student record already linked to an account (PES2UG24CS001 -> aarav.sharma)
+    assert.throws(
+      () =>
+        demoSignupStudent(state, {
+          student_id: "PES2UG24CS001",
+          contact: "+91 98450 11201",
+          email: "aarav2@stu.pes.edu",
+          username: "aarav.second",
+          password: "StrongPassword!2026",
+          confirm_password: "StrongPassword!2026",
+        }),
+      /already been registered/
+    );
+
+    // 4. Valid signup for unlinked active student PES2UG23EC042 (Rohan Verma)
+    const { nextState, createdUser, response } = demoSignupStudent(state, {
+      student_id: "PES2UG23EC042",
+      contact: "+91 98450 11203",
+      email: "rohan.verma@stu.pes.edu",
+      username: "rohan.verma",
+      password: "StrongPassword!2026",
+      confirm_password: "StrongPassword!2026",
+    });
+    assert.equal(createdUser.is_active, false);
+    assert.equal(createdUser.role, "STUDENT");
+    assert.equal(createdUser.student_id, "PES2UG23EC042");
+    assert.equal(
+      response.message,
+      "Your account registration has been submitted and is awaiting hostel administration approval."
+    );
+
+    // 5. Administrator approves the pending account
+    const { approved } = demoApproveUser(nextState, createdUser.id);
+    assert.equal(approved.is_active, true);
+    assert.equal(approved.role, "STUDENT");
+  });
+
+  it("defaults HmsDataProvider to Live API Mode (isDemoMode = false) with no demo banner", () => {
+    function ModeProbe() {
+      const ctx = providerMod.useHmsData();
+      return React.createElement(
+        "div",
+        null,
+        `demo:${String(ctx.isDemoMode)}|status:${ctx.authStatus}`
+      );
+    }
+
+    const html = renderToStaticMarkup(
+      React.createElement(HmsDataProvider, null, React.createElement(ModeProbe))
+    );
+    assert.match(html, /demo:false\|status:loading/);
+    assert.doesNotMatch(html, /DEMO DATA/);
+  });
+});
+
+
+const endpointsMod = await jiti.import("@/lib/api/endpoints");
+const httpClientMod = await jiti.import("@/lib/api/http-client");
+const { API_ENDPOINTS, ensureTrailingSlash } = endpointsMod;
+const { buildApiUrl, apiRequest } = httpClientMod;
+
+describe("7. Django API URL Trailing Slash Contract & HTTP Client Verification", () => {
+  it("defines every static and dynamic endpoint with a required trailing slash matching Django urls.py", () => {
+    assert.equal(API_ENDPOINTS.health, "/api/v1/health/");
+
+    // Authentication endpoints
+    assert.equal(API_ENDPOINTS.auth.csrf, "/api/v1/auth/csrf/");
+    assert.equal(API_ENDPOINTS.auth.login, "/api/v1/auth/login/");
+    assert.equal(API_ENDPOINTS.auth.signup, "/api/v1/auth/signup/");
+    assert.equal(API_ENDPOINTS.auth.logout, "/api/v1/auth/logout/");
+    assert.equal(API_ENDPOINTS.auth.me, "/api/v1/auth/me/");
+
+    // Administration endpoints
+    assert.equal(API_ENDPOINTS.admin.users, "/api/v1/admin/users/");
+    assert.equal(
+      API_ENDPOINTS.admin.approveUser(42),
+      "/api/v1/admin/users/42/approve/"
+    );
+    assert.equal(API_ENDPOINTS.admin.roles, "/api/v1/admin/roles/");
+
+    // Student endpoints
+    assert.equal(API_ENDPOINTS.students.list, "/api/v1/students/");
+    assert.equal(API_ENDPOINTS.students.detail(7), "/api/v1/students/7/");
+    assert.equal(
+      API_ENDPOINTS.students.deactivate(7),
+      "/api/v1/students/7/deactivate/"
+    );
+
+    // Hostel & Room endpoints
+    assert.equal(API_ENDPOINTS.hostels.list, "/api/v1/hostels/");
+    assert.equal(API_ENDPOINTS.hostels.detail(3), "/api/v1/hostels/3/");
+    assert.equal(API_ENDPOINTS.rooms.list, "/api/v1/rooms/");
+    assert.equal(API_ENDPOINTS.rooms.detail(12), "/api/v1/rooms/12/");
+    assert.equal(
+      API_ENDPOINTS.rooms.availability,
+      "/api/v1/rooms/availability/"
+    );
+    assert.equal(
+      API_ENDPOINTS.rooms.occupancy(12),
+      "/api/v1/rooms/12/occupancy/"
+    );
+
+    // Allocation & Report endpoints
+    assert.equal(API_ENDPOINTS.allocations.list, "/api/v1/allocations/");
+    assert.equal(API_ENDPOINTS.allocations.detail(9), "/api/v1/allocations/9/");
+    assert.equal(
+      API_ENDPOINTS.allocations.transfer(9),
+      "/api/v1/allocations/9/transfer/"
+    );
+    assert.equal(
+      API_ENDPOINTS.allocations.vacate(9),
+      "/api/v1/allocations/9/vacate/"
+    );
+    assert.equal(
+      API_ENDPOINTS.reports.occupancy,
+      "/api/v1/reports/occupancy/"
+    );
+    assert.equal(
+      API_ENDPOINTS.reports.allocations,
+      "/api/v1/reports/allocations/"
+    );
+  });
+
+  it("preserves and enforces trailing slashes in buildApiUrl with and without query parameters", () => {
+    assert.equal(ensureTrailingSlash("/api/v1/auth/login"), "/api/v1/auth/login/");
+    assert.equal(ensureTrailingSlash("/api/v1/auth/login///"), "/api/v1/auth/login/");
+    assert.equal(
+      buildApiUrl(API_ENDPOINTS.students.list, { q: "aarav", status: "Active" }),
+      "/api/v1/students/?q=aarav&status=Active"
+    );
+    assert.equal(
+      buildApiUrl("/api/v1/allocations", { status: "active" }),
+      "/api/v1/allocations/?status=active"
+    );
+  });
+
+  it("sends GET and POST requests via apiRequest to exact slash-terminated paths", async () => {
+    const originalFetch = globalThis.fetch;
+    const recordedCalls = [];
+
+    globalThis.fetch = async (url, init) => {
+      recordedCalls.push({
+        url: String(url),
+        method: init?.method || "GET",
+      });
+      if (String(url).endsWith("/api/v1/auth/csrf/")) {
+        return new Response(JSON.stringify({ csrfToken: "test-csrf-token" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    };
+
+    try {
+      await apiRequest(API_ENDPOINTS.auth.me, { method: "GET" });
+      await apiRequest(API_ENDPOINTS.students.list, {
+        method: "GET",
+        params: { status: "Active" },
+      });
+      await apiRequest(API_ENDPOINTS.auth.login, {
+        method: "POST",
+        body: { username: "warden.north", password: "SecretPassword!123" },
+      });
+
+      assert.deepEqual(recordedCalls, [
+        { url: "/api/v1/auth/me/", method: "GET" },
+        { url: "/api/v1/students/?status=Active", method: "GET" },
+        { url: "/api/v1/auth/csrf/", method: "GET" },
+        { url: "/api/v1/auth/login/", method: "POST" },
+      ]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("initializes CSRF token, attaches X-CSRFToken to login and signup POST requests, and retries once if CSRF cookie is missing", async () => {
+    const originalFetch = globalThis.fetch;
+    const { resetCsrfTokenCache } = httpClientMod;
+    resetCsrfTokenCache();
+
+    const recordedCalls = [];
+    let loginAttempt = 0;
+
+    globalThis.fetch = async (url, init) => {
+      const urlStr = String(url);
+      const method = init?.method || "GET";
+      const headers = init?.headers || {};
+
+      recordedCalls.push({
+        url: urlStr,
+        method,
+        csrfHeader: headers["X-CSRFToken"] || null,
+        credentials: init?.credentials || null,
+        cache: init?.cache || null,
+      });
+
+      if (urlStr === "/api/v1/auth/csrf/") {
+        const token =
+          loginAttempt === 0 ? "initial-csrf-token" : "refreshed-csrf-token";
+        return new Response(JSON.stringify({ csrfToken: token }), {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRFToken": token,
+          },
+        });
+      }
+
+      if (urlStr === "/api/v1/auth/login/") {
+        loginAttempt += 1;
+        if (loginAttempt === 1) {
+          return new Response(
+            JSON.stringify({
+              error: "CSRF Failed: CSRF cookie not set.",
+              details: { detail: "CSRF Failed: CSRF cookie not set." },
+              status_code: 403,
+            }),
+            {
+              status: 403,
+              headers: { "Content-Type": "application/json" },
+            }
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            id: 1,
+            username: "admin.pesu",
+            role: "ADMINISTRATOR",
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }
+        );
+      }
+
+      if (urlStr === "/api/v1/auth/signup/") {
+        return new Response(
+          JSON.stringify({
+            message:
+              "Your account registration has been submitted and is awaiting hostel administration approval.",
+            username: "rohan.verma",
+            student_id: "PES2UG23EC042",
+            status: "PENDING_APPROVAL",
+          }),
+          {
+            status: 201,
+            headers: { "Content-Type": "application/json" },
+          }
+        );
+      }
+
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    };
+
+    try {
+      const loginRes = await apiRequest(API_ENDPOINTS.auth.login, {
+        method: "POST",
+        body: { username: "admin.pesu", password: "ValidPassword!123" },
+      });
+      assert.equal(loginRes.username, "admin.pesu");
+
+      const signupRes = await apiRequest(API_ENDPOINTS.auth.signup, {
+        method: "POST",
+        body: {
+          student_id: "PES2UG23EC042",
+          contact: "+91 98450 11203",
+          email: "rohan.verma@stu.pes.edu",
+          username: "rohan.verma",
+          password: "StrongPassword!2026",
+          confirm_password: "StrongPassword!2026",
+        },
+      });
+      assert.equal(signupRes.status, "PENDING_APPROVAL");
+
+      assert.equal(recordedCalls.length, 6);
+      assert.equal(recordedCalls[0].url, "/api/v1/auth/csrf/");
+      assert.equal(recordedCalls[0].credentials, "include");
+      assert.equal(recordedCalls[0].cache, "no-store");
+
+      assert.equal(recordedCalls[1].url, "/api/v1/auth/login/");
+      assert.equal(recordedCalls[1].csrfHeader, "initial-csrf-token");
+
+      // Automatic CSRF refresh after 403 CSRF cookie not set
+      assert.equal(recordedCalls[2].url, "/api/v1/auth/csrf/");
+      assert.equal(recordedCalls[3].url, "/api/v1/auth/login/");
+      assert.equal(recordedCalls[3].csrfHeader, "refreshed-csrf-token");
+
+      // Subsequent signup POST also fetches/sends CSRF token and credentials: include
+      assert.equal(recordedCalls[5].url, "/api/v1/auth/signup/");
+      assert.equal(recordedCalls[5].csrfHeader, "refreshed-csrf-token");
+      assert.equal(recordedCalls[5].credentials, "include");
+    } finally {
+      globalThis.fetch = originalFetch;
+      resetCsrfTokenCache();
+    }
   });
 });

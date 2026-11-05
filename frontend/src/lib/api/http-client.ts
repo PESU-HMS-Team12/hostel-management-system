@@ -1,39 +1,95 @@
-import { API_ENDPOINTS } from "./endpoints";
+import { API_ENDPOINTS, ensureTrailingSlash } from "./endpoints";
 import { HmsApiError, normalizeBackendError } from "./errors";
 
-function getCookieValue(name: string): string | null {
-  if (typeof document === "undefined") {
+let cachedCsrfToken: string | null = null;
+let inflightCsrfPromise: Promise<string | null> | null = null;
+
+export function getCookieValue(name: string): string | null {
+  if (typeof document === "undefined" || !document.cookie) {
     return null;
   }
-  const match = document.cookie
-    .split("; ")
-    .find((row) => row.startsWith(`${name}=`));
-  return match ? decodeURIComponent(match.split("=")[1]) : null;
+  const cookies = document.cookie.split(";");
+  for (const rawCookie of cookies) {
+    const trimmed = rawCookie.trim();
+    if (trimmed.startsWith(`${name}=`)) {
+      return decodeURIComponent(trimmed.slice(name.length + 1));
+    }
+  }
+  return null;
 }
 
-async function ensureCsrfToken(): Promise<string | null> {
-  const existing = getCookieValue("csrftoken");
-  if (existing) {
-    return existing;
-  }
+export function resetCsrfTokenCache(): void {
+  cachedCsrfToken = null;
+  inflightCsrfPromise = null;
+}
 
-  try {
-    const response = await fetch(API_ENDPOINTS.auth.csrf, {
-      method: "GET",
-      credentials: "include",
-      headers: {
-        Accept: "application/json",
-      },
-    });
-    if (response.ok) {
-      const data = (await response.json()) as { csrfToken?: string };
-      return data.csrfToken || getCookieValue("csrftoken");
+export function buildApiUrl(
+  endpoint: string,
+  params?: Record<string, string | undefined>
+): string {
+  const [rawPath, existingQuery] = endpoint.split("?", 2);
+  const slashTerminatedPath = ensureTrailingSlash(rawPath);
+
+  const searchParams = new URLSearchParams(existingQuery || "");
+  if (params) {
+    for (const [key, value] of Object.entries(params)) {
+      if (value !== undefined && value !== "") {
+        searchParams.set(key, value);
+      }
     }
-  } catch {
-    // Connection error will be surfaced by the subsequent request
   }
 
-  return null;
+  const queryString = searchParams.toString();
+  return queryString
+    ? `${slashTerminatedPath}?${queryString}`
+    : slashTerminatedPath;
+}
+
+export async function ensureCsrfToken(
+  forceRefresh = false
+): Promise<string | null> {
+  if (!forceRefresh) {
+    const cookieToken = getCookieValue("csrftoken");
+    if (cookieToken) {
+      cachedCsrfToken = cookieToken;
+      return cookieToken;
+    }
+  }
+
+  if (inflightCsrfPromise && !forceRefresh) {
+    return inflightCsrfPromise;
+  }
+
+  const fetchPromise = (async (): Promise<string | null> => {
+    try {
+      const csrfUrl = buildApiUrl(API_ENDPOINTS.auth.csrf);
+      const response = await fetch(csrfUrl, {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+        headers: {
+          Accept: "application/json",
+        },
+      });
+      if (response.ok) {
+        const data = (await response.json()) as { csrfToken?: string };
+        const cookieToken = getCookieValue("csrftoken");
+        const headerToken = response.headers?.get?.("X-CSRFToken") ?? null;
+        const resolvedToken =
+          cookieToken || data.csrfToken || headerToken || null;
+        cachedCsrfToken = resolvedToken;
+        return resolvedToken;
+      }
+    } catch {
+      // Connection error will be surfaced by the subsequent request
+    } finally {
+      inflightCsrfPromise = null;
+    }
+    return getCookieValue("csrftoken") || cachedCsrfToken;
+  })();
+
+  inflightCsrfPromise = fetchPromise;
+  return fetchPromise;
 }
 
 export interface RequestOptions {
@@ -42,55 +98,56 @@ export interface RequestOptions {
   params?: Record<string, string | undefined>;
 }
 
+function isCsrfFailure(status: number, payload: unknown): boolean {
+  if (status !== 403 || !payload || typeof payload !== "object") {
+    return false;
+  }
+  const text = JSON.stringify(payload).toLowerCase();
+  return text.includes("csrf");
+}
+
 export async function apiRequest<T>(
   endpoint: string,
   options: RequestOptions = {}
 ): Promise<T> {
   const { method = "GET", body, params } = options;
 
-  let url = endpoint;
-  if (params) {
-    const searchParams = new URLSearchParams();
-    for (const [key, value] of Object.entries(params)) {
-      if (value !== undefined && value !== "") {
-        searchParams.set(key, value);
+  const url = buildApiUrl(endpoint, params);
+  const isStateChanging = method !== "GET";
+
+  const executeFetch = async (forceNewCsrf: boolean): Promise<Response> => {
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+    };
+
+    if (body !== undefined) {
+      headers["Content-Type"] = "application/json";
+    }
+
+    if (isStateChanging) {
+      const csrfToken = await ensureCsrfToken(forceNewCsrf);
+      if (csrfToken) {
+        headers["X-CSRFToken"] = csrfToken;
       }
     }
-    const queryString = searchParams.toString();
-    if (queryString) {
-      url = `${endpoint}?${queryString}`;
-    }
-  }
 
-  const headers: Record<string, string> = {
-    Accept: "application/json",
+    try {
+      return await fetch(url, {
+        method,
+        credentials: "include",
+        cache: "no-store",
+        headers,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+      });
+    } catch {
+      throw new HmsApiError(
+        "Unable to reach the HMS backend API (/api/v1). Ensure the Django backend server is running.",
+        503
+      );
+    }
   };
 
-  if (body !== undefined) {
-    headers["Content-Type"] = "application/json";
-  }
-
-  if (method !== "GET") {
-    const csrfToken = await ensureCsrfToken();
-    if (csrfToken) {
-      headers["X-CSRFToken"] = csrfToken;
-    }
-  }
-
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      method,
-      credentials: "include",
-      headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
-  } catch {
-    throw new HmsApiError(
-      "Could not connect to the HMS backend API (/api/v1). Ensure backend PR #17 is merged and the Django server is running, or enable Demo Mode.",
-      503
-    );
-  }
+  let response = await executeFetch(false);
 
   if (response.status === 204) {
     return undefined as T;
@@ -105,6 +162,25 @@ export async function apiRequest<T>(
         `Backend request failed with HTTP ${response.status}.`,
         response.status
       );
+    }
+  }
+
+  // If CSRF cookie was missing or rotated, refresh CSRF cookie once and retry
+  if (isStateChanging && isCsrfFailure(response.status, payload)) {
+    response = await executeFetch(true);
+    if (response.status === 204) {
+      return undefined as T;
+    }
+    payload = null;
+    try {
+      payload = await response.json();
+    } catch {
+      if (!response.ok) {
+        throw new HmsApiError(
+          `Backend request failed with HTTP ${response.status}.`,
+          response.status
+        );
+      }
     }
   }
 

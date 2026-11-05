@@ -917,3 +917,330 @@ class DatabaseConstraintAndConcurrencyTests(TransactionTestCase):
     def tearDown(self):
         connections.close_all()
         super().tearDown()
+
+
+from io import StringIO
+from django.core.management import call_command
+from django.core.management.base import CommandError
+
+
+class StudentSignupAndApprovalAPITests(TestCase):
+
+    def setUp(self):
+        self.client = APIClient()
+        self.csrf_client = APIClient(enforce_csrf_checks=True)
+        self.active_student = Student.objects.create(
+            student_id="PES1UG23CS901",
+            name="Rohan Deshmukh",
+            contact="9876543210",
+            course_program="B.Tech CSE",
+            year=3,
+            status="Active",
+        )
+        self.inactive_student = Student.objects.create(
+            student_id="PES1UG23CS902",
+            name="Inactive Student",
+            contact="9876543211",
+            course_program="B.Tech ECE",
+            year=2,
+            status="Inactive",
+        )
+        self.admin = User.objects.create_user(
+            username="approval_admin",
+            email="approval.admin@pes.edu",
+            password="AdminPassword!482",
+        )
+        RoleProfile.objects.create(
+            user=self.admin,
+            role=RoleProfile.Role.ADMINISTRATOR,
+        )
+        self.warden = User.objects.create_user(
+            username="approval_warden",
+            email="approval.warden@pes.edu",
+            password="WardenPassword!482",
+        )
+        RoleProfile.objects.create(
+            user=self.warden,
+            role=RoleProfile.Role.WARDEN,
+        )
+
+    def test_signup_requires_csrf_when_enforced(self):
+        url = reverse("api_v1:auth-signup")
+        payload = {
+            "student_id": "PES1UG23CS901",
+            "contact": "9876543210",
+            "email": "rohan.deshmukh@stu.pes.edu",
+            "username": "rohan_deshmukh",
+            "password": "StrongStudentPass!901",
+            "confirm_password": "StrongStudentPass!901",
+        }
+        res_without_csrf = self.csrf_client.post(url, payload, format="json")
+        self.assertEqual(res_without_csrf.status_code, status.HTTP_403_FORBIDDEN)
+
+        csrf_res = self.csrf_client.get(reverse("api_v1:auth-csrf"))
+        csrf_token = csrf_res.data["csrfToken"]
+        res_with_csrf = self.csrf_client.post(
+            url,
+            payload,
+            format="json",
+            HTTP_X_CSRFTOKEN=csrf_token,
+        )
+        self.assertEqual(res_with_csrf.status_code, status.HTTP_201_CREATED)
+
+    def test_valid_student_signup_creates_pending_account_and_audit_log(self):
+        url = reverse("api_v1:auth-signup")
+        payload = {
+            "student_id": "PES1UG23CS901",
+            "contact": "+91 98765-43210" if False else "98765-43210",
+            "email": "rohan.deshmukh@stu.pes.edu",
+            "username": "rohan_deshmukh",
+            "password": "StrongStudentPass!901",
+            "confirm_password": "StrongStudentPass!901",
+        }
+        response = self.client.post(url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(
+            response.data["message"],
+            "Your account registration has been submitted and is awaiting hostel administration approval.",
+        )
+        self.assertEqual(response.data["status"], "PENDING_APPROVAL")
+
+        created_user = User.objects.get(username="rohan_deshmukh")
+        self.assertFalse(created_user.is_active)
+        self.assertEqual(created_user.first_name, "Rohan")
+        self.assertEqual(created_user.last_name, "Deshmukh")
+
+        profile = RoleProfile.objects.get(user=created_user)
+        self.assertEqual(profile.role, RoleProfile.Role.STUDENT)
+        self.assertEqual(profile.student, self.active_student)
+
+        self.assertTrue(
+            AuditLog.objects.filter(
+                action_type="CREATE",
+                entity_type="RoleProfile",
+                record_id=str(profile.pk),
+            ).exists()
+        )
+
+    def test_signup_rejects_invalid_student_or_mismatched_contact_or_inactive(self):
+        url = reverse("api_v1:auth-signup")
+        # Unknown student_id
+        res_unknown = self.client.post(
+            url,
+            {
+                "student_id": "PES1UG99ZZ999",
+                "contact": "9876543210",
+                "email": "unknown@stu.pes.edu",
+                "username": "unknown_stu",
+                "password": "StrongStudentPass!901",
+                "confirm_password": "StrongStudentPass!901",
+            },
+            format="json",
+        )
+        self.assertEqual(res_unknown.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("student_id", res_unknown.data["details"])
+
+        # Wrong contact number for active student
+        res_bad_contact = self.client.post(
+            url,
+            {
+                "student_id": "PES1UG23CS901",
+                "contact": "0000000000",
+                "email": "rohan.deshmukh@stu.pes.edu",
+                "username": "rohan_deshmukh",
+                "password": "StrongStudentPass!901",
+                "confirm_password": "StrongStudentPass!901",
+            },
+            format="json",
+        )
+        self.assertEqual(res_bad_contact.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("student_id", res_bad_contact.data["details"])
+
+        # Inactive student record
+        res_inactive = self.client.post(
+            url,
+            {
+                "student_id": "PES1UG23CS902",
+                "contact": "9876543211",
+                "email": "inactive@stu.pes.edu",
+                "username": "inactive_stu",
+                "password": "StrongStudentPass!901",
+                "confirm_password": "StrongStudentPass!901",
+            },
+            format="json",
+        )
+        self.assertEqual(res_inactive.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("student_id", res_inactive.data["details"])
+
+    def test_signup_rejects_duplicate_student_username_email_and_role_escalation(self):
+        url = reverse("api_v1:auth-signup")
+        base_payload = {
+            "student_id": "PES1UG23CS901",
+            "contact": "9876543210",
+            "email": "rohan.deshmukh@stu.pes.edu",
+            "username": "rohan_deshmukh",
+            "password": "StrongStudentPass!901",
+            "confirm_password": "StrongStudentPass!901",
+        }
+        # Reject privilege escalation attempt
+        res_escalate = self.client.post(
+            url,
+            {**base_payload, "role": "ADMINISTRATOR"},
+            format="json",
+        )
+        self.assertEqual(res_escalate.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Register first time
+        res_ok = self.client.post(url, base_payload, format="json")
+        self.assertEqual(res_ok.status_code, status.HTTP_201_CREATED)
+
+        # Duplicate student record
+        res_dup_student = self.client.post(
+            url,
+            {
+                **base_payload,
+                "username": "rohan_second",
+                "email": "rohan2@stu.pes.edu",
+            },
+            format="json",
+        )
+        self.assertEqual(res_dup_student.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("student_id", res_dup_student.data["details"])
+
+    def test_pending_student_cannot_login_until_approved_by_administrator(self):
+        signup_url = reverse("api_v1:auth-signup")
+        login_url = reverse("api_v1:auth-login")
+        self.client.post(
+            signup_url,
+            {
+                "student_id": "PES1UG23CS901",
+                "contact": "9876543210",
+                "email": "rohan.deshmukh@stu.pes.edu",
+                "username": "rohan_deshmukh",
+                "password": "StrongStudentPass!901",
+                "confirm_password": "StrongStudentPass!901",
+            },
+            format="json",
+        )
+        pending_user = User.objects.get(username="rohan_deshmukh")
+
+        # Attempt login before approval -> rejected with pending approval message
+        login_before = self.client.post(
+            login_url,
+            {"username": "rohan_deshmukh", "password": "StrongStudentPass!901"},
+            format="json",
+        )
+        self.assertEqual(login_before.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("awaiting administrator approval", str(login_before.data))
+
+        # Warden cannot approve
+        approve_url = reverse("api_v1:admin-user-approve", kwargs={"user_id": pending_user.pk})
+        self.client.force_login(self.warden)
+        warden_approve = self.client.post(approve_url)
+        self.assertEqual(warden_approve.status_code, status.HTTP_403_FORBIDDEN)
+
+        # Administrator approves
+        self.client.force_login(self.admin)
+        admin_approve = self.client.post(approve_url)
+        self.assertEqual(admin_approve.status_code, status.HTTP_200_OK)
+        self.assertTrue(admin_approve.data["is_active"])
+        self.assertEqual(admin_approve.data["role"], "STUDENT")
+
+        self.assertTrue(
+            AuditLog.objects.filter(
+                user=self.admin,
+                action_type="UPDATE",
+                entity_type="User",
+                record_id=str(pending_user.pk),
+            ).exists()
+        )
+
+        # Now student can log in
+        self.client.logout()
+        login_after = self.client.post(
+            login_url,
+            {"username": "rohan_deshmukh", "password": "StrongStudentPass!901"},
+            format="json",
+        )
+        self.assertEqual(login_after.status_code, status.HTTP_200_OK)
+        self.assertEqual(login_after.data["role"], "STUDENT")
+        self.assertEqual(login_after.data["student"]["student_id"], "PES1UG23CS901")
+
+    def test_csrf_cookie_attributes_and_localhost_3000_origin_login_and_signup(self):
+        csrf_res = self.csrf_client.get(
+            reverse("api_v1:auth-csrf"),
+            HTTP_ORIGIN="http://localhost:3000",
+        )
+        self.assertEqual(csrf_res.status_code, status.HTTP_200_OK)
+        self.assertIn("csrftoken", csrf_res.cookies)
+        morsel = csrf_res.cookies["csrftoken"]
+        self.assertEqual(morsel["path"], "/")
+        self.assertEqual(morsel["samesite"], "Lax")
+        self.assertFalse(bool(morsel["httponly"]))
+
+        csrf_cookie_val = morsel.value
+        signup_res = self.csrf_client.post(
+            reverse("api_v1:auth-signup"),
+            {
+                "student_id": "PES1UG23CS901",
+                "contact": "9876543210",
+                "email": "rohan.deshmukh@stu.pes.edu",
+                "username": "rohan_deshmukh",
+                "password": "StrongStudentPass!901",
+                "confirm_password": "StrongStudentPass!901",
+            },
+            format="json",
+            HTTP_X_CSRFTOKEN=csrf_cookie_val,
+            HTTP_ORIGIN="http://localhost:3000",
+            HTTP_REFERER="http://localhost:3000/signup",
+        )
+        self.assertEqual(signup_res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(signup_res.data["status"], "PENDING_APPROVAL")
+
+        login_res = self.csrf_client.post(
+            reverse("api_v1:auth-login"),
+            {"username": "approval_admin", "password": "AdminPassword!482"},
+            format="json",
+            HTTP_X_CSRFTOKEN=csrf_cookie_val,
+            HTTP_ORIGIN="http://localhost:3000",
+            HTTP_REFERER="http://localhost:3000/login",
+        )
+        self.assertEqual(login_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(login_res.data["username"], "approval_admin")
+
+
+class BootstrapAdminCommandTests(TestCase):
+
+    def test_bootstrap_admin_provisions_active_administrator(self):
+        out = StringIO()
+        call_command(
+            "bootstrap_admin",
+            "--username=initial_hms_admin",
+            "--email=admin.bootstrap@pes.edu",
+            "--password=AdminBootstrapPass!2026",
+            "--first-name=Chief",
+            "--last-name=WardenAdmin",
+            stdout=out,
+        )
+        user = User.objects.get(username="initial_hms_admin")
+        self.assertTrue(user.is_active)
+        self.assertTrue(user.is_staff)
+        self.assertTrue(user.is_superuser)
+        profile = RoleProfile.objects.get(user=user)
+        self.assertEqual(profile.role, RoleProfile.Role.ADMINISTRATOR)
+        self.assertTrue(
+            AuditLog.objects.filter(
+                user=user,
+                entity_type="RoleProfile",
+                record_id=str(profile.pk),
+            ).exists()
+        )
+
+    def test_bootstrap_admin_rejects_weak_password(self):
+        with self.assertRaises(CommandError):
+            call_command(
+                "bootstrap_admin",
+                "--username=weak_admin",
+                "--email=weak@pes.edu",
+                "--password=123",
+            )

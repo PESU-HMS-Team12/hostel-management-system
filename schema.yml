@@ -57,6 +57,34 @@ paths:
                 items:
                   $ref: '#/components/schemas/AdminUser'
           description: ''
+  /api/v1/admin/users/{user_id}/approve/:
+    post:
+      operationId: admin_users_approve_create
+      description: |-
+        Approves a pending (inactive) user registration and activates the account.
+        Restricted to system administrators and recorded in the audit log.
+      summary: Approve pending user registration
+      parameters:
+      - in: path
+        name: user_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Administration
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUser'
+          description: ''
+        '400':
+          description: Account already active or missing role profile
+        '404':
+          description: User account not found
   /api/v1/allocations/:
     get:
       operationId: allocations_list
@@ -376,6 +404,41 @@ paths:
           description: Authentication required
         '403':
           description: No HMS role assigned
+  /api/v1/auth/signup/:
+    post:
+      operationId: auth_signup_create
+      description: Registers a student user account linked to an existing active Student
+        record. The account is created in a pending (inactive) state and requires
+        Administrator approval.
+      summary: Student Account Self-Registration
+      tags:
+      - Authentication
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StudentSignupRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/StudentSignupRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/StudentSignupRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StudentSignupResponse'
+          description: ''
+        '400':
+          description: Validation failed
+        '403':
+          description: CSRF verification failed
   /api/v1/health/:
     get:
       operationId: health_retrieve
@@ -1672,6 +1735,60 @@ components:
       - name
       - student_id
       - year
+    StudentSignupRequest:
+      type: object
+      properties:
+        student_id:
+          type: string
+          minLength: 1
+          maxLength: 20
+        contact:
+          type: string
+          minLength: 1
+          maxLength: 20
+        email:
+          type: string
+          format: email
+          minLength: 1
+        username:
+          type: string
+          minLength: 1
+          maxLength: 150
+        password:
+          type: string
+          writeOnly: true
+          minLength: 8
+        confirm_password:
+          type: string
+          writeOnly: true
+          minLength: 8
+      required:
+      - confirm_password
+      - contact
+      - email
+      - password
+      - student_id
+      - username
+    StudentSignupResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          readOnly: true
+        username:
+          type: string
+          readOnly: true
+        student_id:
+          type: string
+          readOnly: true
+        status:
+          type: string
+          readOnly: true
+      required:
+      - message
+      - status
+      - student_id
+      - username
   securitySchemes:
     cookieAuth:
       type: apiKey

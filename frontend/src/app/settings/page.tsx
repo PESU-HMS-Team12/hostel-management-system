@@ -1,6 +1,6 @@
 "use client";
 
-import { Database, RotateCcw, Server, ShieldCheck } from "lucide-react";
+import { Database, RotateCcw, Server, ShieldCheck, UserCheck } from "lucide-react";
 import { HmsShell } from "@/components/hms-shell";
 import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -9,7 +9,8 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { useHmsData } from "@/lib/api/hms-provider";
 
 export default function SettingsPage() {
-  const { isDemoMode, setDemoMode, resetDemoFixtures } = useHmsData();
+  const { isDemoMode, resetDemoFixtures, user, role, refreshLiveData } =
+    useHmsData();
 
   return (
     <HmsShell breadcrumbs={[{ label: "Settings" }]}>
@@ -17,23 +18,27 @@ export default function SettingsPage() {
         <PageHeader
           category="PREFERENCES & CONFIGURATION"
           title="Workspace Settings"
-          description="Configure data provider mode (Demo Fixtures vs. Live Django REST API), theme appearance, and security settings."
+          description="View your authenticated session profile, backend API connection status, and theme preferences."
         />
 
         <div className="grid gap-6 lg:grid-cols-2">
-          {/* Data Source Provider */}
+          {/* Authenticated Session & API Connection */}
           <section className="rounded-2xl border border-border bg-card p-6 shadow-xs space-y-4">
             <div className="flex items-start justify-between gap-3 border-b border-border pb-4">
               <div className="flex items-center gap-3">
                 <div className="flex size-10 items-center justify-center rounded-xl bg-accent text-accent-foreground">
-                  <Database className="size-5" />
+                  {isDemoMode ? (
+                    <Database className="size-5" />
+                  ) : (
+                    <Server className="size-5" />
+                  )}
                 </div>
                 <div>
                   <h2 className="text-base font-semibold">
-                    Data Provider Mode
+                    Backend Connection &amp; Session
                   </h2>
                   <p className="text-xs text-muted-foreground">
-                    Switch between isolated Demo Fixtures and Live Backend API
+                    Django REST API (/api/v1) &amp; Role Profile Status
                   </p>
                 </div>
               </div>
@@ -44,31 +49,42 @@ export default function SettingsPage() {
               )}
             </div>
 
-            <p className="text-xs leading-5 text-muted-foreground">
-              While backend PR #17 (<code>HMS-34-django-rest-api-postgresql</code>
-              ) is unmerged, Demo Mode provides a realistic in-memory fixture
-              store so student registration, room management, allocations,
-              transfers, check-outs, and role assignments can be demonstrated
-              independently.
-            </p>
+            {user && (
+              <div className="rounded-xl border border-border/70 bg-background/50 p-4 text-xs space-y-2">
+                <div className="flex items-center gap-2 font-semibold text-foreground">
+                  <UserCheck className="size-4 text-primary" />
+                  <span>Authenticated Account</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Username:</span>
+                  <span className="font-mono font-semibold text-foreground">
+                    {user.username}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Email:</span>
+                  <span className="text-foreground">{user.email}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">HMS Role:</span>
+                  <span className="font-semibold text-primary">
+                    {user.role_label ?? role}
+                  </span>
+                </div>
+              </div>
+            )}
 
             <div className="flex flex-wrap items-center gap-2.5 pt-2">
-              <Button
-                type="button"
-                variant={isDemoMode ? "default" : "outline"}
-                onClick={() => setDemoMode(true)}
-              >
-                Enable Demo Fixtures
-              </Button>
-              <Button
-                type="button"
-                variant={!isDemoMode ? "default" : "outline"}
-                onClick={() => setDemoMode(false)}
-              >
-                <Server className="size-3.5" />
-                Connect to Live Backend (/api/v1)
-              </Button>
-              {isDemoMode && (
+              {!isDemoMode ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void refreshLiveData()}
+                >
+                  <RotateCcw className="size-3.5" />
+                  Refresh Live Data
+                </Button>
+              ) : (
                 <Button
                   type="button"
                   variant="secondary"

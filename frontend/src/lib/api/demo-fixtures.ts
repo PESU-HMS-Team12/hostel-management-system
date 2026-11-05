@@ -1051,3 +1051,150 @@ export function demoAssignRole(
   const updated = nextState.users.find((u) => u.id === userId)!;
   return { nextState, updated };
 }
+
+
+function normalizeContactNumber(value: string): string {
+  return value.replace(/[^\d+]/g, "");
+}
+
+export function demoSignupStudent(
+  state: DemoStoreState,
+  payload: {
+    student_id: string;
+    contact: string;
+    email: string;
+    username: string;
+    password: string;
+    confirm_password: string;
+  }
+): {
+  nextState: DemoStoreState;
+  createdUser: AdminUser;
+  response: {
+    message: string;
+    username: string;
+    student_id: string;
+    status: string;
+  };
+} {
+  if (payload.password !== payload.confirm_password) {
+    throw new HmsApiError("Password and confirmation password do not match.", 400, {
+      confirm_password: "Password and confirmation password do not match.",
+    });
+  }
+
+  const student = state.students.find(
+    (s) => s.student_id.toLowerCase() === payload.student_id.trim().toLowerCase()
+  );
+  if (
+    !student ||
+    student.status !== "Active" ||
+    normalizeContactNumber(student.contact) !==
+      normalizeContactNumber(payload.contact)
+  ) {
+    throw new HmsApiError(
+      "No active student record matches the provided Student ID and registered contact number.",
+      400,
+      {
+        student_id:
+          "No active student record matches the provided Student ID and registered contact number.",
+      }
+    );
+  }
+
+  if (state.users.some((u) => u.student_id === student.student_id)) {
+    throw new HmsApiError(
+      "An account has already been registered for this student record.",
+      400,
+      {
+        student_id:
+          "An account has already been registered for this student record.",
+      }
+    );
+  }
+
+  if (
+    state.users.some(
+      (u) => u.username.toLowerCase() === payload.username.trim().toLowerCase()
+    )
+  ) {
+    throw new HmsApiError("A user with that username already exists.", 400, {
+      username: "A user with that username already exists.",
+    });
+  }
+
+  if (
+    state.users.some(
+      (u) => u.email.toLowerCase() === payload.email.trim().toLowerCase()
+    )
+  ) {
+    throw new HmsApiError(
+      "A user with that email address already exists.",
+      400,
+      {
+        email: "A user with that email address already exists.",
+      }
+    );
+  }
+
+  const [firstName = "Student", ...restNames] = student.name.trim().split(" ");
+  const nextId = state.users.reduce((max, u) => Math.max(max, u.id), 0) + 1;
+  const createdUser: AdminUser = {
+    id: nextId,
+    username: payload.username.trim(),
+    email: payload.email.trim().toLowerCase(),
+    first_name: firstName,
+    last_name: restNames.join(" "),
+    is_active: false,
+    role: "STUDENT",
+    role_label: "Student",
+    student_id: student.student_id,
+  };
+
+  return {
+    nextState: {
+      ...state,
+      users: [...state.users, createdUser],
+    },
+    createdUser,
+    response: {
+      message:
+        "Your account registration has been submitted and is awaiting hostel administration approval.",
+      username: createdUser.username,
+      student_id: student.student_id,
+      status: "PENDING_APPROVAL",
+    },
+  };
+}
+
+export function demoApproveUser(
+  state: DemoStoreState,
+  userId: number
+): { nextState: DemoStoreState; approved: AdminUser } {
+  const existing = state.users.find((u) => u.id === userId);
+  if (!existing) {
+    throw new HmsApiError("User account not found.", 404);
+  }
+  if (!existing.role) {
+    throw new HmsApiError(
+      "Cannot approve a user account without an assigned HMS role profile.",
+      400
+    );
+  }
+  if (existing.is_active) {
+    throw new HmsApiError("User account is already active.", 400);
+  }
+
+  const approved: AdminUser = {
+    ...existing,
+    is_active: true,
+  };
+
+  return {
+    nextState: {
+      ...state,
+      users: state.users.map((u) => (u.id === userId ? approved : u)),
+    },
+    approved,
+  };
+}

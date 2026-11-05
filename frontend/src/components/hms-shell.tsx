@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   Building2,
   LayoutDashboard,
@@ -12,11 +12,9 @@ import {
   ClipboardList,
   ChartNoAxesCombined,
   Settings,
-  CircleHelp,
   GraduationCap,
   Menu,
   X,
-  UserCheck,
   ShieldAlert,
   BedDouble,
   History,
@@ -24,11 +22,13 @@ import {
   KeyRound,
   Database,
   RotateCcw,
-  LogIn,
+  LogOut,
   AlertTriangle,
+  Lock,
 } from "lucide-react";
 
 import { ThemeToggle } from "@/components/theme-toggle";
+import { Button } from "@/components/ui/button";
 import { useHmsData } from "@/lib/api/hms-provider";
 import type { RoleEnum } from "@/lib/types/hms";
 
@@ -43,13 +43,13 @@ export interface HmsShellProps {
   breadcrumbs?: BreadcrumbItem[];
 }
 
-interface NavItem {
+export interface NavItem {
   label: string;
   href: string;
   icon: typeof LayoutDashboard;
 }
 
-const studentNavigation: NavItem[] = [
+export const studentNavigation: NavItem[] = [
   { label: "Dashboard", href: "/dashboard/student", icon: LayoutDashboard },
   { label: "My Profile", href: "/dashboard/student#profile", icon: UserCircle },
   {
@@ -64,46 +64,122 @@ const studentNavigation: NavItem[] = [
   },
 ];
 
-const wardenNavigation: NavItem[] = [
+export const wardenNavigation: NavItem[] = [
   { label: "Dashboard", href: "/dashboard/warden", icon: LayoutDashboard },
   { label: "Students", href: "/students", icon: Users },
   { label: "Hostels", href: "/hostels", icon: Hotel },
   { label: "Rooms", href: "/rooms", icon: DoorOpen },
   { label: "Allocations", href: "/allocations", icon: ClipboardList },
   { label: "Reports", href: "/reports", icon: ChartNoAxesCombined },
+  { label: "Settings", href: "/settings", icon: Settings },
 ];
 
-const adminNavigation: NavItem[] = [
+export const adminNavigation: NavItem[] = [
   { label: "Dashboard", href: "/dashboard/admin", icon: LayoutDashboard },
   { label: "Students", href: "/students", icon: Users },
   { label: "Hostels", href: "/hostels", icon: Hotel },
   { label: "Rooms", href: "/rooms", icon: DoorOpen },
   { label: "Allocations", href: "/allocations", icon: ClipboardList },
   { label: "Reports", href: "/reports", icon: ChartNoAxesCombined },
-  { label: "User Management", href: "/admin/users", icon: UserCheck },
   {
     label: "Role Management",
-    href: "/admin/users#role-management",
+    href: "/admin/users",
     icon: KeyRound,
   },
   { label: "Settings", href: "/settings", icon: Settings },
 ];
 
-const roleWorkspaceLinks = [
-  { label: "Student Portal", href: "/dashboard/student", role: "STUDENT" },
-  { label: "Warden Workspace", href: "/dashboard/warden", role: "WARDEN" },
-  { label: "Admin Console", href: "/dashboard/admin", role: "ADMINISTRATOR" },
-] as const;
+export function getNavigationForRole(
+  role: RoleEnum | null | undefined
+): NavItem[] {
+  if (role === "STUDENT") {
+    return studentNavigation;
+  }
+  if (role === "ADMINISTRATOR") {
+    return adminNavigation;
+  }
+  return wardenNavigation;
+}
+
+export function isNavItemActive(pathname: string, href: string): boolean {
+  if (href.includes("#")) {
+    return false;
+  }
+  const cleanPathname = pathname.split("?")[0].split("#")[0] || "/";
+  if (href === "/") return cleanPathname === "/";
+  return cleanPathname === href || cleanPathname.startsWith(`${href}/`);
+}
+
+export function getRoleHomePath(role: RoleEnum | null | undefined): string {
+  if (role === "STUDENT") {
+    return "/dashboard/student";
+  }
+  if (role === "ADMINISTRATOR") {
+    return "/dashboard/admin";
+  }
+  return "/dashboard/warden";
+}
+
+export function isRouteAllowedForRole(
+  pathname: string,
+  role: RoleEnum | null | undefined
+): boolean {
+  if (!role) {
+    return false;
+  }
+
+  const cleanPath = pathname.split("?")[0].split("#")[0] || "/";
+
+  if (cleanPath === "/" || cleanPath === "/dashboard") {
+    return true;
+  }
+
+  if (role === "STUDENT") {
+    return cleanPath === "/dashboard/student";
+  }
+
+  const wardenAllowedPrefixes = [
+    "/dashboard/warden",
+    "/students",
+    "/hostels",
+    "/rooms",
+    "/allocations",
+    "/reports",
+    "/settings",
+  ];
+
+  if (role === "WARDEN") {
+    return wardenAllowedPrefixes.some(
+      (prefix) => cleanPath === prefix || cleanPath.startsWith(`${prefix}/`)
+    );
+  }
+
+  if (role === "ADMINISTRATOR") {
+    const adminAllowedPrefixes = [
+      "/dashboard/admin",
+      "/admin/users",
+      ...wardenAllowedPrefixes,
+    ];
+    return adminAllowedPrefixes.some(
+      (prefix) => cleanPath === prefix || cleanPath.startsWith(`${prefix}/`)
+    );
+  }
+
+  return false;
+}
 
 export function HmsShell({ children, role, breadcrumbs }: HmsShellProps) {
   const pathname = usePathname() || "/";
+  const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
   const {
     isDemoMode,
-    setDemoMode,
     resetDemoFixtures,
     apiError,
     refreshLiveData,
+    authStatus,
+    user,
+    logout,
   } = useHmsData();
 
   useEffect(() => {
@@ -121,52 +197,132 @@ export function HmsShell({ children, role, breadcrumbs }: HmsShellProps) {
     };
   }, [mobileOpen]);
 
+  useEffect(() => {
+    if (authStatus === "unauthenticated") {
+      router.replace("/login");
+    }
+  }, [authStatus, router]);
+
+  async function handleSignOut() {
+    await logout();
+    router.replace("/login");
+  }
+
+  // 1. Loading session state — do not flash unauthenticated or wrong role UI
+  if (authStatus === "loading") {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-4 text-foreground">
+        <div className="flex flex-col items-center gap-3 text-center">
+          <div className="flex size-12 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-sm">
+            <Building2 className="size-6 animate-pulse" />
+          </div>
+          <p className="text-sm font-semibold">Verifying HMS session...</p>
+          <p className="text-xs text-muted-foreground">
+            Checking role permissions with the hostel management server
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // 2. Unauthenticated state — redirect to /login without rendering protected layout
+  if (authStatus === "unauthenticated") {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-4 text-foreground">
+        <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 text-center shadow-sm space-y-4">
+          <div className="mx-auto flex size-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
+            <Lock className="size-5" />
+          </div>
+          <h1 className="text-lg font-bold tracking-tight">
+            Authentication Required
+          </h1>
+          <p className="text-xs leading-5 text-muted-foreground">
+            Please sign in with your university account to access the Hostel
+            Management System.
+          </p>
+          <Link
+            href="/login"
+            className="inline-flex h-9 items-center justify-center rounded-lg bg-primary px-4 text-xs font-semibold text-primary-foreground"
+          >
+            Go to Sign In
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // 3. Forbidden / No assigned HMS Role state
+  if (authStatus === "forbidden") {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-4 text-foreground">
+        <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 text-center shadow-sm space-y-4">
+          <div className="mx-auto flex size-11 items-center justify-center rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400">
+            <ShieldAlert className="size-5" />
+          </div>
+          <h1 className="text-lg font-bold tracking-tight">
+            HMS Role Not Assigned
+          </h1>
+          <p className="text-xs leading-5 text-muted-foreground">
+            Your account is authenticated, but no Hostel Management System role
+            profile (Student, Warden, or Administrator) is currently assigned.
+            Please contact the hostel administrator.
+          </p>
+          <div className="flex justify-center gap-2 pt-1">
+            <Button variant="outline" size="sm" onClick={() => void handleSignOut()}>
+              <LogOut className="size-3.5" />
+              <span>Sign Out</span>
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const effectiveRole: RoleEnum =
+    user?.role ??
     role ??
     (pathname.startsWith("/dashboard/student")
       ? "STUDENT"
       : pathname.startsWith("/dashboard/admin") ||
-          pathname.startsWith("/admin") ||
-          pathname.startsWith("/settings")
+          pathname.startsWith("/admin")
         ? "ADMINISTRATOR"
         : "WARDEN");
 
-  const activeNavList =
-    effectiveRole === "STUDENT"
-      ? studentNavigation
-      : effectiveRole === "ADMINISTRATOR"
-        ? adminNavigation
-        : wardenNavigation;
+  const activeNavList = getNavigationForRole(effectiveRole);
 
-  const isActive = (href: string) => {
-    if (href.includes("#")) {
-      return false;
-    }
-    if (href === "/") return pathname === "/";
-    return pathname === href || pathname.startsWith(`${href}/`);
-  };
+  const isActive = (href: string) => isNavItemActive(pathname, href);
 
   const activePage =
-    activeNavList.find((item) => isActive(item.href)) ??
-    (pathname === "/"
-      ? { label: "Overview", href: "/", icon: LayoutDashboard }
-      : pathname === "/login"
-        ? { label: "Sign In", href: "/login", icon: LogIn }
-        : activeNavList[0]);
+    activeNavList.find((item) => isActive(item.href)) ?? activeNavList[0];
 
   const roleBadgeLabel =
     effectiveRole === "STUDENT"
-      ? "Student View"
+      ? "Student Portal"
       : effectiveRole === "ADMINISTRATOR"
-        ? "Administrator View"
-        : "Warden View";
+        ? "Administrator Console"
+        : "Warden Workspace";
+
+  const displayName = user
+    ? `${user.first_name} ${user.last_name}`.trim() || user.username
+    : roleBadgeLabel;
+
+  const displayRoleLabel =
+    user?.role_label ??
+    (effectiveRole === "STUDENT"
+      ? "Student"
+      : effectiveRole === "ADMINISTRATOR"
+        ? "Administrator"
+        : "Warden");
+
+  const routeAllowed = isRouteAllowedForRole(pathname, effectiveRole);
+  const roleHomePath = getRoleHomePath(effectiveRole);
 
   const sidebarContent = (
     <div className="flex h-full flex-col">
       {/* Brand */}
       <div className="flex h-[76px] shrink-0 items-center gap-3 border-b border-sidebar-border px-6">
         <Link
-          href="/"
+          href={roleHomePath}
           className="flex items-center gap-3 focus-visible:outline-none"
         >
           <div className="flex size-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
@@ -211,16 +367,16 @@ export function HmsShell({ children, role, breadcrumbs }: HmsShellProps) {
         </div>
       </div>
 
-      {/* Navigation */}
+      {/* Navigation strictly for the authenticated user's role */}
       <nav
         aria-label="Main navigation"
         className="flex-1 overflow-y-auto px-4 py-6"
       >
         <p className="mb-2.5 px-3 text-[11px] font-bold tracking-[0.16em] text-muted-foreground uppercase">
           {effectiveRole === "STUDENT"
-            ? "Student Portal"
+            ? "Student Navigation"
             : effectiveRole === "ADMINISTRATOR"
-              ? "Admin Navigation"
+              ? "Administrator Navigation"
               : "Warden Navigation"}
         </p>
 
@@ -252,68 +408,34 @@ export function HmsShell({ children, role, breadcrumbs }: HmsShellProps) {
             );
           })}
         </ul>
-
-        <div className="my-5 border-t border-sidebar-border" />
-
-        <p className="mb-2.5 px-3 text-[11px] font-bold tracking-[0.16em] text-muted-foreground uppercase">
-          Role Dashboards
-        </p>
-
-        <ul className="space-y-1">
-          {roleWorkspaceLinks.map((ws) => {
-            const active = pathname === ws.href;
-            return (
-              <li key={ws.href}>
-                <Link
-                  href={ws.href}
-                  onClick={() => setMobileOpen(false)}
-                  className={`flex items-center justify-between rounded-xl px-3 py-2 text-xs font-medium transition-colors ${
-                    active
-                      ? "bg-accent text-accent-foreground font-semibold"
-                      : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                  }`}
-                >
-                  <span>{ws.label}</span>
-                  <span className="rounded border border-border/80 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                    {ws.role}
-                  </span>
-                </Link>
-              </li>
-            );
-          })}
-          <li>
-            <Link
-              href="/login"
-              onClick={() => setMobileOpen(false)}
-              className={`flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-medium transition-colors ${
-                pathname === "/login"
-                  ? "bg-accent text-accent-foreground font-semibold"
-                  : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-              }`}
-            >
-              <LogIn className="size-3.5" />
-              <span>Session Sign-In</span>
-            </Link>
-          </li>
-        </ul>
       </nav>
 
-      {/* Sidebar footer */}
-      <div className="shrink-0 border-t border-sidebar-border p-4">
-        <div className="flex items-center gap-3 rounded-xl p-2">
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-accent text-accent-foreground">
-            <CircleHelp className="size-[17px]" />
+      {/* Authenticated User Account Footer & Sign Out */}
+      <div className="shrink-0 border-t border-sidebar-border p-4 space-y-2.5">
+        <div className="flex items-center gap-3 rounded-xl px-2 py-1.5">
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs font-bold text-primary">
+            {displayName.slice(0, 2).toUpperCase()}
           </div>
 
-          <div className="min-w-0">
-            <p className="text-[13px] font-semibold text-sidebar-foreground">
-              HMS Workspace
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[13px] font-semibold text-sidebar-foreground">
+              {displayName}
             </p>
             <p className="mt-0.5 truncate text-xs text-muted-foreground">
-              Backend RBAC authoritative
+              {displayRoleLabel}
+              {user?.username ? ` · @${user.username}` : ""}
             </p>
           </div>
         </div>
+
+        <button
+          type="button"
+          onClick={() => void handleSignOut()}
+          className="flex w-full items-center justify-center gap-2 rounded-xl border border-sidebar-border bg-background/70 px-3 py-2 text-xs font-semibold text-sidebar-foreground transition-colors hover:bg-rose-500/10 hover:text-rose-600 dark:hover:text-rose-400"
+        >
+          <LogOut className="size-3.5" />
+          <span>Sign Out</span>
+        </button>
       </div>
     </div>
   );
@@ -371,7 +493,7 @@ export function HmsShell({ children, role, breadcrumbs }: HmsShellProps) {
               className="hidden items-center text-sm text-muted-foreground sm:flex truncate"
             >
               <Link
-                href="/dashboard"
+                href={roleHomePath}
                 className="transition-colors hover:text-foreground"
               >
                 Workspace
@@ -406,7 +528,7 @@ export function HmsShell({ children, role, breadcrumbs }: HmsShellProps) {
           </div>
 
           <div className="flex items-center gap-2.5">
-            {isDemoMode ? (
+            {isDemoMode && (
               <div className="flex items-center gap-1.5 rounded-full border border-amber-500/35 bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-600 dark:text-amber-400">
                 <Database className="size-3.5 shrink-0" />
                 <span>DEMO DATA</span>
@@ -421,47 +543,20 @@ export function HmsShell({ children, role, breadcrumbs }: HmsShellProps) {
                   <span className="hidden md:inline">Reset</span>
                 </button>
               </div>
-            ) : (
-              <div className="flex items-center gap-1.5 rounded-full border border-emerald-500/35 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                <ShieldAlert className="size-3.5 shrink-0" />
-                <span>LIVE API MODE</span>
-              </div>
             )}
 
-            <button
-              type="button"
-              onClick={() => setDemoMode(!isDemoMode)}
-              className="hidden rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground xl:inline-flex"
-            >
-              {isDemoMode ? "Switch to Live API" : "Use Demo Fixtures"}
-            </button>
+            <div className="hidden items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground sm:inline-flex">
+              <span className="size-2 rounded-full bg-emerald-500" />
+              <span className="font-semibold text-foreground">
+                {displayRoleLabel}
+              </span>
+            </div>
 
             <ThemeToggle />
           </div>
         </header>
 
-        {/* Demo Mode or Live API Status Banner */}
-        {isDemoMode && (
-          <div className="border-b border-amber-500/20 bg-amber-500/5 px-5 py-2 text-xs text-muted-foreground sm:px-8">
-            <div className="mx-auto flex max-w-[1500px] flex-wrap items-center justify-between gap-2">
-              <p>
-                <strong className="font-semibold text-amber-600 dark:text-amber-400">
-                  DEMO DATA ACTIVE:
-                </strong>{" "}
-                Viewing isolated in-memory sample fixtures while backend PR #17
-                (HMS-34) awaits merge. Workflow changes update local demo state
-                only and are not persisted to PostgreSQL.
-              </p>
-              <Link
-                href="/settings"
-                className="font-medium text-primary underline-offset-4 hover:underline"
-              >
-                Data source settings
-              </Link>
-            </div>
-          </div>
-        )}
-
+        {/* Live API Error Banner (no silent fallback to demo data) */}
         {!isDemoMode && apiError && (
           <div
             role="alert"
@@ -471,33 +566,49 @@ export function HmsShell({ children, role, breadcrumbs }: HmsShellProps) {
               <div className="flex items-center gap-2">
                 <AlertTriangle className="size-4 shrink-0" />
                 <span>
-                  <strong>Live Backend API Error:</strong> {apiError} (No fake
-                  records have been substituted.)
+                  <strong>Backend API Error:</strong> {apiError}
                 </span>
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => void refreshLiveData()}
-                  className="rounded-lg border border-rose-500/30 bg-background px-2.5 py-1 font-semibold text-foreground hover:bg-accent"
-                >
-                  Retry Live API
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDemoMode(true)}
-                  className="rounded-lg bg-primary px-2.5 py-1 font-semibold text-primary-foreground hover:bg-primary/90"
-                >
-                  Enable Demo Fixtures
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => void refreshLiveData()}
+                className="rounded-lg border border-rose-500/30 bg-background px-2.5 py-1 font-semibold text-foreground hover:bg-accent"
+              >
+                Retry Request
+              </button>
             </div>
           </div>
         )}
 
-        {/* Page content */}
+        {/* Page content with strict role route guard */}
         <main className="mx-auto w-full max-w-[1500px] flex-1 px-5 py-8 sm:px-8 lg:px-10">
-          {children}
+          {routeAllowed ? (
+            children
+          ) : (
+            <div
+              role="alert"
+              className="mx-auto my-8 max-w-lg rounded-2xl border border-rose-500/30 bg-card p-6 text-center shadow-xs space-y-4"
+            >
+              <div className="mx-auto flex size-11 items-center justify-center rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400">
+                <ShieldAlert className="size-5" />
+              </div>
+              <h1 className="text-lg font-bold tracking-tight">
+                Access Restricted
+              </h1>
+              <p className="text-xs leading-5 text-muted-foreground">
+                Your current role (<strong>{displayRoleLabel}</strong>) does not
+                have permission to access <code>{pathname}</code>.
+              </p>
+              <div className="pt-1">
+                <Link
+                  href={roleHomePath}
+                  className="inline-flex h-9 items-center justify-center rounded-lg bg-primary px-4 text-xs font-semibold text-primary-foreground"
+                >
+                  Return to {displayRoleLabel} Dashboard
+                </Link>
+              </div>
+            </div>
+          )}
         </main>
 
         {/* Team byline */}

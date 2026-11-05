@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from django.db import transaction
 from drf_spectacular.utils import extend_schema, OpenApiResponse
 from rest_framework import status
 from rest_framework.response import Response
@@ -76,6 +77,67 @@ class AdminRoleAssignView(APIView):
             "RoleProfile",
             profile.pk,
         )
+
+        return Response(
+            AdminUserSerializer(user).data,
+            status=status.HTTP_200_OK,
+        )
+
+
+@extend_schema(tags=["Administration"])
+class AdminUserApproveView(APIView):
+    """
+    Approves a pending (inactive) user registration and activates the account.
+    Restricted to system administrators and recorded in the audit log.
+    """
+    permission_classes = [IsAdministrator]
+
+    @extend_schema(
+        summary="Approve pending user registration",
+        request=None,
+        responses={
+            200: AdminUserSerializer,
+            400: OpenApiResponse(description="Account already active or missing role profile"),
+            404: OpenApiResponse(description="User account not found"),
+        },
+    )
+    def post(self, request, user_id: int):
+        with transaction.atomic():
+            user = (
+                User.objects
+                .select_for_update()
+                .select_related("role_profile", "role_profile__student")
+                .filter(pk=user_id)
+                .first()
+            )
+            if not user:
+                return Response(
+                    {"detail": "User account not found."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            profile = getattr(user, "role_profile", None)
+            if not profile:
+                return Response(
+                    {"detail": "Cannot approve a user account without an assigned HMS role profile."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            if user.is_active:
+                return Response(
+                    {"detail": "User account is already active."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            user.is_active = True
+            user.save(update_fields=["is_active"])
+
+            create_audit_log(
+                request.user,
+                "UPDATE",
+                "User",
+                user.pk,
+            )
 
         return Response(
             AdminUserSerializer(user).data,

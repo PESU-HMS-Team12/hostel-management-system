@@ -361,6 +361,25 @@ export function validateAllocationVacate(
   return errors;
 }
 
+export function buildRoleAssignmentPayload(input: {
+  user_id: number;
+  role: RoleAssignmentRequest["role"];
+  student_id?: string | null;
+}): RoleAssignmentRequest {
+  if (input.role === "STUDENT") {
+    return {
+      user_id: Number(input.user_id),
+      role: "STUDENT",
+      student_id: input.student_id?.trim() || "",
+    };
+  }
+
+  return {
+    user_id: Number(input.user_id),
+    role: input.role,
+  };
+}
+
 export function validateRoleAssignment(
   input: Partial<RoleAssignmentRequest>,
   users: AdminUser[],
@@ -408,6 +427,70 @@ export function validateRoleAssignment(
       errors.student_id =
         "Only Student role profiles can be linked to a student record.";
     }
+  }
+
+  return errors;
+}
+
+
+export function validateStudentSignup(
+  input: Partial<{
+    student_id: string;
+    contact: string;
+    email: string;
+    username: string;
+    password: string;
+    confirm_password: string;
+  }>
+): ValidationErrors {
+  const errors: ValidationErrors = {};
+
+  const studentId = input.student_id?.trim() ?? "";
+  if (!studentId) {
+    errors.student_id = "University Student ID (SRN) is required.";
+  } else if (studentId.length > 20) {
+    errors.student_id = "Student ID must not exceed 20 characters.";
+  }
+
+  const contact = input.contact?.trim() ?? "";
+  const digits = contact.replace(/\D/g, "");
+  if (!contact) {
+    errors.contact = "Registered contact number is required.";
+  } else if (digits.length < 10) {
+    errors.contact = "Please enter a valid 10-digit registered contact number.";
+  }
+
+  const email = input.email?.trim() ?? "";
+  if (!email) {
+    errors.email = "University email address is required.";
+  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    errors.email = "Please enter a valid university email address.";
+  }
+
+  const username = input.username?.trim() ?? "";
+  if (!username) {
+    errors.username = "Username is required.";
+  } else if (username.length < 3) {
+    errors.username = "Username must be at least 3 characters.";
+  } else if (!/^[a-zA-Z0-9._+-]+$/.test(username)) {
+    errors.username =
+      "Username may only contain letters, digits, dots, underscores, or hyphens.";
+  }
+
+  const password = input.password ?? "";
+  if (!password) {
+    errors.password = "Password is required.";
+  } else if (password.length < 8) {
+    errors.password = "Password must be at least 8 characters long.";
+  } else if (/^\d+$/.test(password)) {
+    errors.password = "Password cannot be entirely numeric.";
+  }
+
+  const confirmPassword = input.confirm_password ?? "";
+  if (!confirmPassword) {
+    errors.confirm_password = "Please confirm your password.";
+  } else if (password && password !== confirmPassword) {
+    errors.confirm_password = "Password and confirmation password do not match.";
   }
 
   return errors;

@@ -36,6 +36,7 @@ const DEMO_STUDENT_SCENARIOS = [
 export function StudentDashboardView() {
   const {
     currentUser,
+    students,
     studentOwnAllocations,
     isDemoMode,
     previewStudentId,
@@ -55,7 +56,11 @@ export function StudentDashboardView() {
     );
   }
 
-  const student = currentUser?.student ?? null;
+  const student =
+    currentUser?.student ??
+    (isDemoMode
+      ? students.find((s) => s.student_id === previewStudentId) ?? null
+      : null);
   // Strictly filter allocations to only the authenticated/previewed student
   const ownAllocations = student
     ? studentOwnAllocations.filter((a) => a.student_id === student.student_id)
@@ -103,9 +108,8 @@ export function StudentDashboardView() {
             No Linked Student Profile
           </h2>
           <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-            Ensure you are signed in with a student account linked to a valid
-            HMS student record, or enable Demo Fixtures to inspect the Student
-            Dashboard.
+            Ensure your account is linked to an active university student
+            record, or contact the Hostel Administration Office for assistance.
           </p>
         </section>
       ) : (

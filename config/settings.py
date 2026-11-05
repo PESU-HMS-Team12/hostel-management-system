@@ -251,9 +251,15 @@ SESSION_COOKIE_AGE = 30 * 60
 SESSION_SAVE_EVERY_REQUEST = True
 
 # Cookie security
+SESSION_COOKIE_PATH = "/"
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = "Lax"
 SESSION_COOKIE_SECURE = not DEBUG
+
+CSRF_COOKIE_NAME = "csrftoken"
+CSRF_COOKIE_PATH = "/"
+CSRF_COOKIE_HTTPONLY = False
+CSRF_COOKIE_SAMESITE = "Lax"
 CSRF_COOKIE_SECURE = not DEBUG
 
 # Require HTTPS outside development; can be explicitly configured via environment (e.g. disabled for CI test suites)

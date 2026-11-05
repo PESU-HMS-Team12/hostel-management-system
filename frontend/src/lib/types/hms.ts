@@ -145,6 +145,22 @@ export interface LoginRequest {
   password: string;
 }
 
+export interface StudentSignupRequest {
+  student_id: string;
+  contact: string;
+  email: string;
+  username: string;
+  password: string;
+  confirm_password: string;
+}
+
+export interface StudentSignupResponse {
+  message: string;
+  username: string;
+  student_id: string;
+  status: string;
+}
+
 export interface AdminUser {
   id: number;
   username: string;
