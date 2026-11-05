@@ -6,3 +6,8 @@ db.sqlite3
 .idea/
 .vscode/
 .venv/
+.coverage
+coverage.xml
+htmlcov/
+*.log
+staticfiles/

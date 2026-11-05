@@ -1,0 +1,1679 @@
+openapi: 3.0.3
+info:
+  title: Hostel Management System API
+  version: v1
+  description: Versioned REST API for Hostel Management System (HMS), supporting authentication,
+    student records, hostels, rooms, room allocations, transfers, vacations, and reports.
+paths:
+  /api/v1/admin/roles/:
+    post:
+      operationId: admin_roles_create
+      description: |-
+        Assign or update a user's HMS role.
+        Logs role changes in the audit log for compliance (TC-SEC-05).
+      summary: Assign or update user role
+      tags:
+      - Administration
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoleAssignmentRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/RoleAssignmentRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/RoleAssignmentRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUser'
+          description: ''
+        '400':
+          description: Validation error
+  /api/v1/admin/users/:
+    get:
+      operationId: admin_users_list
+      description: |-
+        List user accounts and their assigned HMS roles.
+        Restricted to system administrators.
+      summary: List all users and roles
+      tags:
+      - Administration
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminUser'
+          description: ''
+  /api/v1/allocations/:
+    get:
+      operationId: allocations_list
+      description: |-
+        Endpoints for room allocation creation, listing, history, transfers, and vacations.
+        All state-changing operations are transaction-safe with row-locking to prevent over-allocation.
+      parameters:
+      - in: query
+        name: q
+        schema:
+          type: string
+        description: Search by student ID/name, room, or hostel
+      - in: query
+        name: status
+        schema:
+          type: string
+        description: 'Filter by status: ''active'', ''completed'', ''all'''
+      tags:
+      - Allocations
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Allocation'
+          description: ''
+    post:
+      operationId: allocations_create
+      description: Creates an active allocation for a student. Transaction-safe with
+        room row locking.
+      summary: Create room allocation
+      tags:
+      - Allocations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AllocationCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AllocationCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AllocationCreateRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Allocation'
+          description: ''
+  /api/v1/allocations/{id}/:
+    get:
+      operationId: allocations_retrieve
+      description: |-
+        Endpoints for room allocation creation, listing, history, transfers, and vacations.
+        All state-changing operations are transaction-safe with row-locking to prevent over-allocation.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this allocation.
+        required: true
+      tags:
+      - Allocations
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Allocation'
+          description: ''
+    put:
+      operationId: allocations_update
+      description: |-
+        Endpoints for room allocation creation, listing, history, transfers, and vacations.
+        All state-changing operations are transaction-safe with row-locking to prevent over-allocation.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this allocation.
+        required: true
+      tags:
+      - Allocations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AllocationRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AllocationRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AllocationRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Allocation'
+          description: ''
+    patch:
+      operationId: allocations_partial_update
+      description: |-
+        Endpoints for room allocation creation, listing, history, transfers, and vacations.
+        All state-changing operations are transaction-safe with row-locking to prevent over-allocation.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this allocation.
+        required: true
+      tags:
+      - Allocations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedAllocationRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedAllocationRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedAllocationRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Allocation'
+          description: ''
+    delete:
+      operationId: allocations_destroy
+      description: |-
+        Endpoints for room allocation creation, listing, history, transfers, and vacations.
+        All state-changing operations are transaction-safe with row-locking to prevent over-allocation.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this allocation.
+        required: true
+      tags:
+      - Allocations
+      security:
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/allocations/{id}/transfer/:
+    post:
+      operationId: allocations_transfer_create
+      description: Closes the current room allocation and atomically creates a new
+        active allocation.
+      summary: Transfer an active allocation
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this allocation.
+        required: true
+      tags:
+      - Allocations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AllocationTransferRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AllocationTransferRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AllocationTransferRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Allocation'
+          description: ''
+  /api/v1/allocations/{id}/vacate/:
+    post:
+      operationId: allocations_vacate_create
+      description: Records student check-out and completes the room allocation.
+      summary: Vacate an active allocation
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this allocation.
+        required: true
+      tags:
+      - Allocations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AllocationVacateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AllocationVacateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AllocationVacateRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Allocation'
+          description: ''
+  /api/v1/auth/csrf/:
+    get:
+      operationId: auth_csrf_retrieve
+      description: Sets the CSRF cookie and returns the token in the response body.
+      summary: Retrieve CSRF Token
+      tags:
+      - Authentication
+      security:
+      - {}
+      responses:
+        '200':
+          description: CSRF token retrieved successfully
+  /api/v1/auth/login/:
+    post:
+      operationId: auth_login_create
+      description: Authenticates the user and creates a secure server-side session
+        cookie.
+      summary: User Login
+      tags:
+      - Authentication
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentUser'
+          description: ''
+        '400':
+          description: Invalid credentials or missing role
+        '403':
+          description: CSRF verification failed
+  /api/v1/auth/logout/:
+    post:
+      operationId: auth_logout_create
+      description: Flushes the current user session and invalidates session cookies.
+      summary: User Logout
+      tags:
+      - Authentication
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: Logged out successfully
+  /api/v1/auth/me/:
+    get:
+      operationId: auth_me_retrieve
+      description: Returns profile details, role, and active room allocation (if a
+        student).
+      summary: Current User Profile
+      tags:
+      - Authentication
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentUser'
+          description: ''
+        '401':
+          description: Authentication required
+        '403':
+          description: No HMS role assigned
+  /api/v1/health/:
+    get:
+      operationId: health_retrieve
+      description: Verifies database connectivity and service availability.
+      summary: Service health check
+      tags:
+      - System
+      security:
+      - {}
+      responses:
+        '200':
+          description: Service and database are operational
+        '503':
+          description: Database or service is unavailable
+  /api/v1/hostels/:
+    get:
+      operationId: hostels_list
+      description: CRUD endpoints for hostel properties and blocks.
+      tags:
+      - Hostels
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Hostel'
+          description: ''
+    post:
+      operationId: hostels_create
+      description: CRUD endpoints for hostel properties and blocks.
+      tags:
+      - Hostels
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HostelRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/HostelRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/HostelRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Hostel'
+          description: ''
+  /api/v1/hostels/{id}/:
+    get:
+      operationId: hostels_retrieve
+      description: CRUD endpoints for hostel properties and blocks.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this hostel.
+        required: true
+      tags:
+      - Hostels
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Hostel'
+          description: ''
+    put:
+      operationId: hostels_update
+      description: CRUD endpoints for hostel properties and blocks.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this hostel.
+        required: true
+      tags:
+      - Hostels
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HostelRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/HostelRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/HostelRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Hostel'
+          description: ''
+    patch:
+      operationId: hostels_partial_update
+      description: CRUD endpoints for hostel properties and blocks.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this hostel.
+        required: true
+      tags:
+      - Hostels
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedHostelRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedHostelRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedHostelRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Hostel'
+          description: ''
+    delete:
+      operationId: hostels_destroy
+      description: CRUD endpoints for hostel properties and blocks.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this hostel.
+        required: true
+      tags:
+      - Hostels
+      security:
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/reports/allocations/:
+    get:
+      operationId: reports_allocations_retrieve
+      description: Allocation statistics and summary report.
+      summary: Allocation summary report
+      tags:
+      - Reports
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AllocationReport'
+          description: ''
+  /api/v1/reports/occupancy/:
+    get:
+      operationId: reports_occupancy_retrieve
+      description: Real-time occupancy report aggregating beds, capacity, and utilization
+        rates across all hostels.
+      summary: Hostel occupancy report
+      tags:
+      - Reports
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OccupancyReport'
+          description: ''
+  /api/v1/rooms/:
+    get:
+      operationId: rooms_list
+      description: CRUD and availability endpoints for rooms across hostels.
+      tags:
+      - Rooms
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Room'
+          description: ''
+    post:
+      operationId: rooms_create
+      description: CRUD and availability endpoints for rooms across hostels.
+      tags:
+      - Rooms
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoomRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/RoomRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/RoomRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Room'
+          description: ''
+  /api/v1/rooms/{id}/:
+    get:
+      operationId: rooms_retrieve
+      description: CRUD and availability endpoints for rooms across hostels.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this room.
+        required: true
+      tags:
+      - Rooms
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Room'
+          description: ''
+    put:
+      operationId: rooms_update
+      description: CRUD and availability endpoints for rooms across hostels.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this room.
+        required: true
+      tags:
+      - Rooms
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoomRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/RoomRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/RoomRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Room'
+          description: ''
+    patch:
+      operationId: rooms_partial_update
+      description: CRUD and availability endpoints for rooms across hostels.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this room.
+        required: true
+      tags:
+      - Rooms
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedRoomRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedRoomRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedRoomRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Room'
+          description: ''
+    delete:
+      operationId: rooms_destroy
+      description: CRUD and availability endpoints for rooms across hostels.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this room.
+        required: true
+      tags:
+      - Rooms
+      security:
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/rooms/{id}/occupancy/:
+    get:
+      operationId: rooms_occupancy_retrieve
+      description: Returns room metadata alongside active resident allocations.
+      summary: Retrieve detailed occupancy for a specific room
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this room.
+        required: true
+      tags:
+      - Rooms
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Room'
+          description: ''
+  /api/v1/rooms/availability/:
+    get:
+      operationId: rooms_availability_list
+      description: Returns list of rooms with their real-time occupancy, available
+        beds, and status.
+      summary: List room availability and occupancy
+      tags:
+      - Rooms
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RoomAvailability'
+          description: ''
+  /api/v1/students/:
+    get:
+      operationId: students_list
+      description: Endpoints for creating, listing, retrieving, updating, searching,
+        and deactivating students.
+      parameters:
+      - in: query
+        name: q
+        schema:
+          type: string
+        description: Search by student ID, name, or course program
+      - in: query
+        name: status
+        schema:
+          type: string
+        description: Filter by status (Active/Inactive)
+      tags:
+      - Students
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Student'
+          description: ''
+    post:
+      operationId: students_create
+      description: Endpoints for creating, listing, retrieving, updating, searching,
+        and deactivating students.
+      tags:
+      - Students
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StudentRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/StudentRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/StudentRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Student'
+          description: ''
+  /api/v1/students/{id}/:
+    get:
+      operationId: students_retrieve
+      description: Endpoints for creating, listing, retrieving, updating, searching,
+        and deactivating students.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this student.
+        required: true
+      tags:
+      - Students
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Student'
+          description: ''
+    put:
+      operationId: students_update
+      description: Endpoints for creating, listing, retrieving, updating, searching,
+        and deactivating students.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this student.
+        required: true
+      tags:
+      - Students
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StudentRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/StudentRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/StudentRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Student'
+          description: ''
+    patch:
+      operationId: students_partial_update
+      description: Endpoints for creating, listing, retrieving, updating, searching,
+        and deactivating students.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this student.
+        required: true
+      tags:
+      - Students
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedStudentRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedStudentRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedStudentRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Student'
+          description: ''
+    delete:
+      operationId: students_destroy
+      description: Endpoints for creating, listing, retrieving, updating, searching,
+        and deactivating students.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this student.
+        required: true
+      tags:
+      - Students
+      security:
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/students/{id}/deactivate/:
+    post:
+      operationId: students_deactivate_create
+      description: Sets the student status to Inactive.
+      summary: Deactivate a student
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this student.
+        required: true
+      tags:
+      - Students
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Student'
+          description: ''
+components:
+  schemas:
+    AdminUser:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        username:
+          type: string
+          readOnly: true
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+        email:
+          title: Email address
+          oneOf:
+          - type: string
+            format: email
+            maxLength: 254
+          - type: string
+            maxLength: 0
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        is_active:
+          type: boolean
+          title: Active
+          description: Designates whether this user should be treated as active. Unselect
+            this instead of deleting accounts.
+        role:
+          type: string
+          nullable: true
+          readOnly: true
+        role_label:
+          type: string
+          nullable: true
+          readOnly: true
+        student_id:
+          type: string
+          nullable: true
+          readOnly: true
+      required:
+      - id
+      - role
+      - role_label
+      - student_id
+      - username
+    Allocation:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        student:
+          type: integer
+        student_id:
+          type: string
+          readOnly: true
+        student_name:
+          type: string
+          readOnly: true
+        room:
+          type: integer
+        room_no:
+          type: string
+          readOnly: true
+        room_type:
+          type: string
+          readOnly: true
+        hostel_id:
+          type: string
+          readOnly: true
+        hostel_name:
+          type: string
+          readOnly: true
+        allocation_date:
+          type: string
+          format: date
+        check_in_date:
+          type: string
+          format: date
+          nullable: true
+        check_out_date:
+          type: string
+          format: date
+          nullable: true
+        is_active:
+          type: boolean
+          readOnly: true
+      required:
+      - allocation_date
+      - hostel_id
+      - hostel_name
+      - id
+      - is_active
+      - room
+      - room_no
+      - room_type
+      - student
+      - student_id
+      - student_name
+    AllocationCreateRequest:
+      type: object
+      properties:
+        student:
+          type: integer
+        room:
+          type: integer
+        allocation_date:
+          type: string
+          format: date
+        check_in_date:
+          type: string
+          format: date
+          nullable: true
+      required:
+      - room
+      - student
+    AllocationReport:
+      type: object
+      properties:
+        generated_at:
+          type: string
+          format: date-time
+        total_allocations:
+          type: integer
+        active_allocations:
+          type: integer
+        completed_allocations:
+          type: integer
+        allocations_by_program:
+          type: object
+          additionalProperties:
+            type: integer
+      required:
+      - active_allocations
+      - allocations_by_program
+      - completed_allocations
+      - generated_at
+      - total_allocations
+    AllocationRequest:
+      type: object
+      properties:
+        student:
+          type: integer
+        room:
+          type: integer
+        allocation_date:
+          type: string
+          format: date
+        check_in_date:
+          type: string
+          format: date
+          nullable: true
+        check_out_date:
+          type: string
+          format: date
+          nullable: true
+      required:
+      - allocation_date
+      - room
+      - student
+    AllocationTransferRequest:
+      type: object
+      properties:
+        new_room:
+          type: integer
+        transfer_date:
+          type: string
+          format: date
+      required:
+      - new_room
+    AllocationVacateRequest:
+      type: object
+      properties:
+        checkout_date:
+          type: string
+          format: date
+    CurrentUser:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        username:
+          type: string
+          readOnly: true
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+        email:
+          type: string
+          format: email
+          readOnly: true
+          title: Email address
+        first_name:
+          type: string
+          readOnly: true
+        last_name:
+          type: string
+          readOnly: true
+        role:
+          type: string
+          nullable: true
+          readOnly: true
+        role_label:
+          type: string
+          nullable: true
+          readOnly: true
+        student:
+          allOf:
+          - $ref: '#/components/schemas/NestedStudent'
+          nullable: true
+          readOnly: true
+        current_allocation:
+          allOf:
+          - $ref: '#/components/schemas/NestedCurrentAllocation'
+          nullable: true
+          readOnly: true
+      required:
+      - current_allocation
+      - email
+      - first_name
+      - id
+      - last_name
+      - role
+      - role_label
+      - student
+      - username
+    Hostel:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        hostel_id:
+          type: string
+          maxLength: 20
+        name:
+          type: string
+          maxLength: 100
+        block_location:
+          type: string
+          maxLength: 100
+        status:
+          type: string
+          maxLength: 20
+        rooms_count:
+          type: integer
+          readOnly: true
+      required:
+      - block_location
+      - hostel_id
+      - id
+      - name
+      - rooms_count
+    HostelOccupancySummary:
+      type: object
+      properties:
+        hostel_id:
+          type: string
+        hostel_name:
+          type: string
+        status:
+          type: string
+        total_rooms:
+          type: integer
+        total_capacity:
+          type: integer
+        occupied_beds:
+          type: integer
+        available_beds:
+          type: integer
+        occupancy_rate:
+          type: number
+          format: double
+      required:
+      - available_beds
+      - hostel_id
+      - hostel_name
+      - occupancy_rate
+      - occupied_beds
+      - status
+      - total_capacity
+      - total_rooms
+    HostelRequest:
+      type: object
+      properties:
+        hostel_id:
+          type: string
+          minLength: 1
+          maxLength: 20
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        block_location:
+          type: string
+          minLength: 1
+          maxLength: 100
+        status:
+          type: string
+          minLength: 1
+          maxLength: 20
+      required:
+      - block_location
+      - hostel_id
+      - name
+    LoginRequest:
+      type: object
+      properties:
+        username:
+          type: string
+          minLength: 1
+        password:
+          type: string
+          writeOnly: true
+          minLength: 1
+      required:
+      - password
+      - username
+    NestedCurrentAllocation:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        allocation_date:
+          type: string
+          format: date
+        check_in_date:
+          type: string
+          format: date
+          nullable: true
+        check_out_date:
+          type: string
+          format: date
+          nullable: true
+        hostel_name:
+          type: string
+          readOnly: true
+        room_no:
+          type: string
+          readOnly: true
+        room_type:
+          type: string
+          readOnly: true
+      required:
+      - allocation_date
+      - hostel_name
+      - id
+      - room_no
+      - room_type
+    NestedStudent:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        student_id:
+          type: string
+          maxLength: 20
+        name:
+          type: string
+          maxLength: 100
+        contact:
+          type: string
+          maxLength: 20
+        course_program:
+          type: string
+          maxLength: 100
+        year:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        status:
+          type: string
+          maxLength: 20
+      required:
+      - contact
+      - course_program
+      - id
+      - name
+      - student_id
+      - year
+    OccupancyReport:
+      type: object
+      properties:
+        generated_at:
+          type: string
+          format: date-time
+        total_hostels:
+          type: integer
+        total_rooms:
+          type: integer
+        total_capacity:
+          type: integer
+        total_occupied_beds:
+          type: integer
+        total_available_beds:
+          type: integer
+        overall_occupancy_rate:
+          type: number
+          format: double
+        hostels:
+          type: array
+          items:
+            $ref: '#/components/schemas/HostelOccupancySummary'
+      required:
+      - generated_at
+      - hostels
+      - overall_occupancy_rate
+      - total_available_beds
+      - total_capacity
+      - total_hostels
+      - total_occupied_beds
+      - total_rooms
+    PatchedAllocationRequest:
+      type: object
+      properties:
+        student:
+          type: integer
+        room:
+          type: integer
+        allocation_date:
+          type: string
+          format: date
+        check_in_date:
+          type: string
+          format: date
+          nullable: true
+        check_out_date:
+          type: string
+          format: date
+          nullable: true
+    PatchedHostelRequest:
+      type: object
+      properties:
+        hostel_id:
+          type: string
+          minLength: 1
+          maxLength: 20
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        block_location:
+          type: string
+          minLength: 1
+          maxLength: 100
+        status:
+          type: string
+          minLength: 1
+          maxLength: 20
+    PatchedRoomRequest:
+      type: object
+      properties:
+        room_id:
+          type: string
+          minLength: 1
+          maxLength: 20
+        hostel:
+          type: integer
+        room_no:
+          type: string
+          minLength: 1
+          maxLength: 20
+        room_type:
+          type: string
+          minLength: 1
+          maxLength: 50
+        capacity:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        status:
+          type: string
+          minLength: 1
+          maxLength: 20
+    PatchedStudentRequest:
+      type: object
+      properties:
+        student_id:
+          type: string
+          minLength: 1
+          maxLength: 20
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        contact:
+          type: string
+          minLength: 1
+          maxLength: 20
+        course_program:
+          type: string
+          minLength: 1
+          maxLength: 100
+        year:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        status:
+          type: string
+          minLength: 1
+          maxLength: 20
+    RoleAssignmentRequest:
+      type: object
+      properties:
+        user_id:
+          type: integer
+        role:
+          $ref: '#/components/schemas/RoleEnum'
+        student_id:
+          type: string
+          nullable: true
+      required:
+      - role
+      - user_id
+    RoleEnum:
+      enum:
+      - STUDENT
+      - WARDEN
+      - ADMINISTRATOR
+      type: string
+      description: |-
+        * `STUDENT` - Student
+        * `WARDEN` - Warden
+        * `ADMINISTRATOR` - Administrator
+    Room:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        room_id:
+          type: string
+          maxLength: 20
+        hostel:
+          type: integer
+        hostel_name:
+          type: string
+          readOnly: true
+        room_no:
+          type: string
+          maxLength: 20
+        room_type:
+          type: string
+          maxLength: 50
+        capacity:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        status:
+          type: string
+          maxLength: 20
+        active_occupancy:
+          type: integer
+          readOnly: true
+        available_beds:
+          type: integer
+          readOnly: true
+      required:
+      - active_occupancy
+      - available_beds
+      - capacity
+      - hostel
+      - hostel_name
+      - id
+      - room_id
+      - room_no
+      - room_type
+    RoomAvailability:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        room_id:
+          type: string
+          maxLength: 20
+        hostel_id:
+          type: string
+          readOnly: true
+        hostel_name:
+          type: string
+          readOnly: true
+        room_no:
+          type: string
+          maxLength: 20
+        room_type:
+          type: string
+          maxLength: 50
+        capacity:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        status:
+          type: string
+          maxLength: 20
+        active_occupancy:
+          type: integer
+          readOnly: true
+        available_beds:
+          type: integer
+          readOnly: true
+        availability_label:
+          type: string
+          readOnly: true
+      required:
+      - active_occupancy
+      - availability_label
+      - available_beds
+      - capacity
+      - hostel_id
+      - hostel_name
+      - id
+      - room_id
+      - room_no
+      - room_type
+    RoomRequest:
+      type: object
+      properties:
+        room_id:
+          type: string
+          minLength: 1
+          maxLength: 20
+        hostel:
+          type: integer
+        room_no:
+          type: string
+          minLength: 1
+          maxLength: 20
+        room_type:
+          type: string
+          minLength: 1
+          maxLength: 50
+        capacity:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        status:
+          type: string
+          minLength: 1
+          maxLength: 20
+      required:
+      - capacity
+      - hostel
+      - room_id
+      - room_no
+      - room_type
+    Student:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        student_id:
+          type: string
+          maxLength: 20
+        name:
+          type: string
+          maxLength: 100
+        contact:
+          type: string
+          maxLength: 20
+        course_program:
+          type: string
+          maxLength: 100
+        year:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        status:
+          type: string
+          maxLength: 20
+      required:
+      - contact
+      - course_program
+      - id
+      - name
+      - student_id
+      - year
+    StudentRequest:
+      type: object
+      properties:
+        student_id:
+          type: string
+          minLength: 1
+          maxLength: 20
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        contact:
+          type: string
+          minLength: 1
+          maxLength: 20
+        course_program:
+          type: string
+          minLength: 1
+          maxLength: 100
+        year:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        status:
+          type: string
+          minLength: 1
+          maxLength: 20
+      required:
+      - contact
+      - course_program
+      - name
+      - student_id
+      - year
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: sessionid
