@@ -25,7 +25,76 @@ The HMS production stack is composed of decoupled, containerized services:
 
 ---
 
-## 2. Environment Variables & Secrets Reference
+## 2. Same-Origin `/api/` Ingress Architecture
+
+To guarantee maximum security and cross-browser cookie compatibility, the Next.js frontend and Django backend communicate through a **same-origin `/api/` routing pattern**:
+
+### 2.1 Architectural Benefits
+1. **First-Party Cookie Isolation:** Session cookies (`sessionid`) and CSRF tokens (`csrftoken`) remain strictly first-party (`SameSite=Lax`). They are never blocked by third-party cookie restrictions in modern browsers (e.g., Safari ITP, Chrome Privacy Sandbox).
+2. **Zero Pre-Flight Latency:** Eliminates browser HTTP `OPTIONS` pre-flight round-trips for mutating API requests (`POST`, `PUT`, `DELETE`).
+3. **Simplified Ingress:** The browser communicates exclusively with a single origin (e.g., `https://hms.pes.edu`), removing external cross-origin exposure.
+
+### 2.2 Next.js Server-Side Rewrites (`next.config.js`)
+When running decoupled services under container orchestration, Next.js proxies client calls from `/api/*` to the Django backend container:
+
+```javascript
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  async rewrites() {
+    return [
+      {
+        source: '/api/:path*',
+        destination: `${process.env.INTERNAL_API_URL || 'http://web:8000'}/api/:path*`,
+      },
+    ];
+  },
+};
+
+module.exports = nextConfig;
+```
+
+### 2.3 Production Reverse-Proxy Ingress Pattern (Nginx Gateway)
+For single-host SSL termination, route path prefixes as follows:
+
+```nginx
+upstream django_backend {
+    server web:8000;
+}
+
+upstream nextjs_frontend {
+    server frontend:3000;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name hms.pes.edu;
+
+    ssl_certificate     /etc/ssl/certs/hms.crt;
+    ssl_certificate_key /etc/ssl/private/hms.key;
+
+    # Backend API & static assets
+    location /api/ {
+        proxy_pass http://django_backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Next.js frontend pages and assets
+    location / {
+        proxy_pass http://nextjs_frontend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+---
+
+## 3. Environment Variables & Secrets Reference
 
 Never commit `.env` or production secrets into source control. Store secrets in GitHub Actions Secrets, container environment configurations, or platform secret managers (e.g., Railway, Render, AWS Secrets Manager).
 
@@ -38,11 +107,14 @@ Never commit `.env` or production secrets into source control. Store secrets in 
 | `CORS_ALLOWED_ORIGINS` | Production | Yes | Comma-separated list of allowed frontend origins (e.g., `https://hms.pes.edu`). |
 | `CSRF_TRUSTED_ORIGINS` | Production | Yes | Comma-separated list of trusted CSRF origins (e.g., `https://hms.pes.edu`). |
 | `SECURE_SSL_REDIRECT` | Production / CI | No | Toggles HTTPS redirect. Defaults to `true` when `DEBUG=false`; set to `false` in CI test environments. |
+| `CONN_MAX_AGE` | Production / CI | No | Persistent DB connection timeout (seconds). Defaults to `600` in production, `0` in test runs. |
+| `INTERNAL_API_URL` | Frontend Container | No | Container-to-container backend endpoint for Next.js rewrites (`http://web:8000`). |
+| `NEXT_PUBLIC_API_URL` | Frontend Client | No | Relative API base URL for browser calls (`/api/v1`). |
 | `SONAR_TOKEN` | CI/CD | Yes | SonarCloud project token stored in GitHub Secrets. |
 
 ---
 
-## 3. Production Security Hardening
+## 4. Production Security Hardening
 
 When `DJANGO_DEBUG=false`, the following security flags are automatically active:
 
@@ -60,9 +132,9 @@ When `DJANGO_DEBUG=false`, the following security flags are automatically active
 
 ---
 
-## 4. Deployment Procedure
+## 5. Deployment Procedure
 
-### 4.1 Automated CI/CD Pipeline
+### 5.1 Automated CI/CD Pipeline
 
 Every push and pull request triggers `.github/workflows/ci.yml`:
 1. Launches a PostgreSQL 16 container.
@@ -70,34 +142,53 @@ Every push and pull request triggers `.github/workflows/ci.yml`:
 3. Verifies migration consistency via `python manage.py makemigrations --check --dry-run`.
 4. Applies migrations to PostgreSQL.
 5. Validates OpenAPI 3.0 schema generation.
-6. Runs the entire 97-test suite under `coverage.py` against PostgreSQL.
+6. Runs the entire 100-test suite under `coverage.py` against PostgreSQL.
 7. Generates and uploads `coverage.xml`.
 8. Executes SonarCloud quality analysis.
 9. Automatically tests the Next.js frontend when merged.
 
-### 4.2 Safe Database Migration Strategy
+### 5.2 Safe Database Migration Strategy
 
 To avoid downtime or schema lockouts during deployment:
 
-1. **Step 1 — Pre-deployment Migration:**
+1. **Step 1 — Pre-deployment Database Backup:**
+   Create an immediate SQL dump of the database prior to applying schema migrations. The `-T` flag is essential to disable pseudo-TTY allocation and prevent SQL stream corruption:
+   ```bash
+   # Ensure backup directory exists
+   mkdir -p backups
+
+   # Linux / macOS / Bash:
+   docker compose exec -T postgres pg_dump -U ${POSTGRES_USER:-hms_admin} ${POSTGRES_DB:-hms_production} > backups/hms_backup_$(date +%Y%m%d_%H%M%S).sql
+
+   # Windows PowerShell:
+   # docker compose exec -T postgres pg_dump -U hms_admin hms_production > backups/hms_backup.sql
+   ```
+
+2. **Step 2 — Pre-deployment Migration Execution:**
    Before routing traffic to new container instances, run database migrations in an ephemeral migration container:
    ```bash
    docker compose run --rm web python manage.py migrate --noinput
    ```
-2. **Step 2 — Roll out New Web Containers:**
-   Start the updated application containers.
+
+3. **Step 3 — Roll out Application Containers:**
+   Start or update the running application containers:
    ```bash
    docker compose up -d --build
    ```
-3. **Step 3 — Verify Health Probe:**
-   Verify that the health check returns HTTP 200:
+
+4. **Step 4 — Verify Health Probes:**
+   Verify that both PostgreSQL and the backend API report healthy:
    ```bash
+   # Check container status
+   docker compose ps
+
+   # Probe backend JSON health check
    curl -f http://localhost:8000/api/v1/health/
    ```
 
 ---
 
-## 5. Health Check Verification
+## 6. Health Check Verification
 
 The service provides a dedicated JSON health endpoint:
 
@@ -117,36 +208,51 @@ The service provides a dedicated JSON health endpoint:
 
 ---
 
-## 6. Rollback Protocol
+## 7. Rollback Protocol
 
 If a deployment fails health checks or exhibits regressions in production:
 
-1. **Instant Container Revert:**
+1. **Step 1 — Instant Container Revert:**
    Re-deploy the previous tagged release or Docker image:
    ```bash
    docker compose down
    git checkout <PREVIOUS_STABLE_TAG_OR_COMMIT>
    docker compose up -d --build
    ```
-2. **Database Migration Reversal (if applicable):**
-   If a migration must be reverted, inspect the current migration graph:
+
+2. **Step 2 — Database Migration Reversal (if applicable):**
+   If a migration must be reverted, inspect the current migration graph inside the application container:
    ```bash
-   python manage.py showmigrations
+   docker compose run --rm web python manage.py showmigrations
    ```
    Revert to the previous migration for the affected app:
    ```bash
-   python manage.py migrate <app_name> <previous_migration_name>
+   docker compose run --rm web python manage.py migrate <app_name> <previous_migration_name>
    ```
-3. **Verification:**
-   Probe `/api/v1/health/` and run smoke tests against authentication and allocation endpoints.
+
+3. **Step 3 — Database Full State Restore (Emergency Recovery):**
+   If a migration or data corruption cannot be cleanly reverted, restore the pre-deployment snapshot:
+   ```bash
+   # Linux / macOS / Bash:
+   docker compose exec -T postgres psql -U ${POSTGRES_USER:-hms_admin} ${POSTGRES_DB:-hms_production} < backups/hms_backup_<timestamp>.sql
+
+   # Windows PowerShell:
+   # Get-Content backups/hms_backup.sql | docker compose exec -T postgres psql -U hms_admin hms_production
+   ```
+
+4. **Step 4 — Verification:**
+   Probe `/api/v1/health/` and run smoke tests against authentication and allocation endpoints:
+   ```bash
+   curl -f http://localhost:8000/api/v1/health/
+   ```
 
 ---
 
-## 7. Branch Protection & Quality Gate Configuration
+## 8. Branch Protection & Quality Gate Configuration
 
 To guarantee code quality and prevent unauthorized direct pushes to `main`:
 
-### 7.1 Required Branch Protection Rules for `main`
+### 8.1 Required Branch Protection Rules for `main`
 
 Navigate to **GitHub Repository Settings > Branches > Add branch protection rule**:
 
@@ -159,12 +265,12 @@ Navigate to **GitHub Repository Settings > Branches > Add branch protection rule
      - Require branches to be up to date before merging
      - **Required Status Checks:**
        - `Backend CI & Quality Analysis`
-       - `Frontend CI (Next.js Detection)`
+       - `Frontend CI (ON HOLD — Awaiting Next.js Merge)` (or `Frontend CI` when merged)
        - `SonarCloud Code Analysis`
    - [x] **Require conversation resolution before merging**
    - [x] **Do not allow bypassing the above settings**
 
-### 7.2 SonarCloud Quality Gate Configuration
+### 8.2 SonarCloud Quality Gate Configuration
 
 1. In the SonarCloud project dashboard (`pesu-hms-team12`):
    - Set Quality Gate to **Sonar way** or custom project gate.
