@@ -204,3 +204,61 @@ npx tsc --noEmit
 npm test
 npm run build
 ```
+
+---
+
+## CI/CD Pipeline & Code Quality
+
+The repository implements an automated GitHub Actions CI/CD workflow defined in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) that triggers on pushes to `main`, `HMS-*`, and pull requests targeting `main`.
+
+### 1. Backend CI & Quality Analysis (`backend`)
+- **Runtime:** Python 3.12 on `ubuntu-latest`.
+- **Database Service:** Managed `postgres:16-alpine` service container on port 5432 with `pg_isready` healthcheck.
+- **Automated Verification Pipeline:**
+  1. Installs dependencies from `requirements.txt` with pip caching.
+  2. Runs Django system checks (`python manage.py check`).
+  3. Verifies migration consistency (`python manage.py makemigrations --check --dry-run`).
+  4. Applies migrations to PostgreSQL (`python manage.py migrate`).
+  5. Validates OpenAPI 3.0 schema generation (`python manage.py spectacular --validate --file schema.yml`).
+  6. Collects static assets (`python manage.py collectstatic --noinput`).
+  7. Runs the entire 100-test suite against PostgreSQL under `coverage.py`.
+  8. Exports coverage report to `coverage.xml`.
+  9. Uploads `coverage.xml` as a GitHub Actions artifact (`backend-coverage-report`).
+  10. Executes SonarCloud code quality & security scanning.
+
+### 2. Frontend CI (`frontend`)
+- **Status:** **Active** (integrated with Next.js 16 frontend in `frontend/`).
+- **Workflow:** Runs on Node.js 22 LTS with `npm` dependency caching, executing `npm ci`, ESLint (`npm run lint`), TypeScript verification (`npx tsc --noEmit`), automated test suite (`npm test`), and Next.js production build (`npm run build`).
+
+### 3. SonarCloud Code Analysis
+- **Organization:** `pesu-hms-team12`
+- **Project Key:** `PESU-HMS-Team12_hostel-management-system`
+- **Configuration:** [`sonar-project.properties`](sonar-project.properties)
+- **Required GitHub Secret:** `SONAR_TOKEN` configured in **GitHub > Settings > Secrets and variables > Actions**.
+
+---
+
+## Containerized Deployment (Docker)
+
+The application stack is containerized with multi-stage Docker builds and orchestrated with Docker Compose.
+
+### Local Container Execution
+
+```bash
+# 1. Build and start PostgreSQL and Django backend in the background
+docker compose up -d --build
+
+# 2. Verify container status and healthchecks
+docker compose ps
+
+# 3. Verify backend health probe
+curl -f http://localhost:8000/api/v1/health/
+
+# 4. View application logs
+docker compose logs -f web
+
+# 5. Stop and clean up containers
+docker compose down
+```
+
+For complete deployment runbooks, zero-downtime migration strategies, same-origin `/api/` routing architecture, and rollback procedures, see the comprehensive [Deployment & Operations Manual (DEPLOYMENT.md)](DEPLOYMENT.md).
