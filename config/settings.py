@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 
 import os
 from pathlib import Path
+import sys
 
 import dj_database_url
 from django.core.exceptions import ImproperlyConfigured
@@ -112,10 +113,18 @@ if not database_url and os.environ.get("POSTGRES_DB"):
     pg_db = os.environ.get("POSTGRES_DB")
     database_url = f"postgresql://{pg_user}:{pg_password}@{pg_host}:{pg_port}/{pg_db}"
 
+conn_max_age_env = os.environ.get("CONN_MAX_AGE")
+if conn_max_age_env is not None:
+    conn_max_age = int(conn_max_age_env)
+elif "test" in sys.argv:
+    conn_max_age = 0
+else:
+    conn_max_age = 600
+
 DATABASES = {
     'default': dj_database_url.config(
         default=database_url or f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
-        conn_max_age=600,
+        conn_max_age=conn_max_age,
         conn_health_checks=True,
     )
 }

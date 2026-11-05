@@ -41,6 +41,7 @@ jobs:
       DJANGO_SECRET_KEY: "ci-secret-key-for-automated-testing-only"
       DATABASE_URL: "postgresql://hms_user:hms_password@localhost:5432/hms_test"
       SECURE_SSL_REDIRECT: "false"
+      CONN_MAX_AGE: "0"
 
     steps:
       - name: Checkout repository

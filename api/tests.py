@@ -1,7 +1,7 @@
 from datetime import date, timedelta
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db import connection
+from django.db import connection, connections
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -886,15 +886,18 @@ class DatabaseConstraintAndConcurrencyTests(TransactionTestCase):
         client_b.force_login(self.warden)
 
         def try_allocate(client, student_id):
-            return client.post(
-                url,
-                {
-                    "student": student_id,
-                    "room": self.room.pk,
-                    "allocation_date": today,
-                },
-                format="json",
-            )
+            try:
+                return client.post(
+                    url,
+                    {
+                        "student": student_id,
+                        "room": self.room.pk,
+                        "allocation_date": today,
+                    },
+                    format="json",
+                )
+            finally:
+                connections.close_all()
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
             future_a = executor.submit(try_allocate, client_a, self.student_a.pk)
@@ -910,3 +913,7 @@ class DatabaseConstraintAndConcurrencyTests(TransactionTestCase):
             Allocation.objects.filter(room=self.room, check_out_date__isnull=True).count(),
             1,
         )
+
+    def tearDown(self):
+        connections.close_all()
+        super().tearDown()
