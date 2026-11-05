@@ -1,0 +1,62 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: hms-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-hms_production}
+      POSTGRES_USER: ${POSTGRES_USER:-hms_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ChangeMeSecurePassword123!}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-hms_admin} -d ${POSTGRES_DB:-hms_production}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hms-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DJANGO_DEBUG: "false"
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-ChangeMeProductionSecretKeyNeedsToBeLongAndSecure!}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-hms_admin}:${POSTGRES_PASSWORD:-ChangeMeSecurePassword123!}@postgres:5432/${POSTGRES_DB:-hms_production}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # Note: The Next.js frontend is maintained in a separate branch by team members.
+  # Once merged, uncomment the frontend service definition below:
+  # frontend:
+  #   build:
+  #     context: ./frontend
+  #     dockerfile: Dockerfile
+  #   container_name: hms-frontend
+  #   restart: unless-stopped
+  #   ports:
+  #     - "3000:3000"
+  #   environment:
+  #     - NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
+  #   depends_on:
+  #     - web
+
+volumes:
+  postgres_data:
+    driver: local
