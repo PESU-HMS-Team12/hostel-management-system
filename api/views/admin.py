@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from django.db import transaction
 from drf_spectacular.utils import extend_schema, OpenApiResponse
 from rest_framework import status
 from rest_framework.response import Response
@@ -76,6 +77,81 @@ class AdminRoleAssignView(APIView):
             "RoleProfile",
             profile.pk,
         )
+
+        return Response(
+            AdminUserSerializer(user).data,
+            status=status.HTTP_200_OK,
+        )
+
+
+@extend_schema(tags=["Administration"])
+class AdminUserApproveView(APIView):
+    """
+    Approves a pending (inactive) user registration and activates the account.
+    Restricted to system administrators and recorded in the audit log.
+    """
+    permission_classes = [IsAdministrator]
+
+    @extend_schema(
+        summary="Approve pending user registration",
+        request=None,
+        responses={
+            200: AdminUserSerializer,
+            400: OpenApiResponse(description="Account already active or missing role profile"),
+            404: OpenApiResponse(description="User account not found"),
+        },
+    )
+    def post(self, request, user_id: int):
+        with transaction.atomic():
+            user = (
+                User.objects
+                .select_for_update()
+                .filter(pk=user_id)
+                .first()
+            )
+            if not user:
+                return Response(
+                    {"detail": "User account not found."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            if user.is_active:
+                return Response(
+                    {"detail": "User account is already active."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            profile = (
+                RoleProfile.objects
+                .select_related("student")
+                .filter(user=user)
+                .first()
+            )
+            if (
+                not profile
+                or profile.role != RoleProfile.Role.STUDENT
+                or not profile.student
+                or profile.student.status != "Active"
+            ):
+                return Response(
+                    {
+                        "detail": (
+                            "Only pending STUDENT accounts linked to an active "
+                            "student record can be approved."
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            user.is_active = True
+            user.save(update_fields=["is_active"])
+
+            create_audit_log(
+                request.user,
+                "UPDATE",
+                "User",
+                user.pk,
+            )
 
         return Response(
             AdminUserSerializer(user).data,

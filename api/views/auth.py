@@ -10,7 +10,12 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from api.permissions import HasHMSRole
-from api.serializers.auth import CurrentUserSerializer, LoginSerializer
+from api.serializers.auth import (
+    CurrentUserSerializer,
+    LoginSerializer,
+    StudentSignupResponseSerializer,
+    StudentSignupSerializer,
+)
 
 
 class CSRFTokenView(APIView):
@@ -70,6 +75,51 @@ class LoginView(APIView):
 
         user_serializer = CurrentUserSerializer(user)
         return Response(user_serializer.data, status=status.HTTP_200_OK)
+
+
+class StudentSignupView(APIView):
+    """
+    Allows an eligible active Student to self-register an HMS account.
+    Created accounts remain inactive (pending) until approved by an Administrator.
+    """
+    permission_classes = [AllowAny]
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        SessionAuthentication().enforce_csrf(request)
+
+    @extend_schema(
+        summary="Student Account Self-Registration",
+        description=(
+            "Registers a student user account linked to an existing active Student record. "
+            "The account is created in a pending (inactive) state and requires Administrator approval."
+        ),
+        request=StudentSignupSerializer,
+        responses={
+            201: StudentSignupResponseSerializer,
+            400: OpenApiResponse(description="Validation failed"),
+            403: OpenApiResponse(description="CSRF verification failed"),
+        },
+        tags=["Authentication"],
+    )
+    def post(self, request):
+        serializer = StudentSignupSerializer(
+            data=request.data,
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        student = serializer.validated_data["student"]
+
+        return Response(
+            {
+                "message": "Your account registration has been submitted and is awaiting hostel administration approval.",
+                "username": user.username,
+                "student_id": student.student_id,
+                "status": "PENDING_APPROVAL",
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class LogoutView(APIView):

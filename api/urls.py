@@ -1,13 +1,18 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
-from api.views.admin import AdminRoleAssignView, AdminUserListView
+from api.views.admin import (
+    AdminRoleAssignView,
+    AdminUserApproveView,
+    AdminUserListView,
+)
 from api.views.allocations import AllocationViewSet
 from api.views.auth import (
     CSRFTokenView,
     CurrentUserView,
     LoginView,
     LogoutView,
+    StudentSignupView,
 )
 from api.views.health import HealthCheckView
 from api.views.hostels import HostelViewSet, RoomViewSet
@@ -29,11 +34,13 @@ urlpatterns = [
     # Authentication & Session
     path("auth/csrf/", CSRFTokenView.as_view(), name="auth-csrf"),
     path("auth/login/", LoginView.as_view(), name="auth-login"),
+    path("auth/signup/", StudentSignupView.as_view(), name="auth-signup"),
     path("auth/logout/", LogoutView.as_view(), name="auth-logout"),
     path("auth/me/", CurrentUserView.as_view(), name="auth-me"),
 
     # Administrative Management
     path("admin/users/", AdminUserListView.as_view(), name="admin-users"),
+    path("admin/users/<int:user_id>/approve/", AdminUserApproveView.as_view(), name="admin-user-approve"),
     path("admin/roles/", AdminRoleAssignView.as_view(), name="admin-roles"),
 
     # Occupancy and Allocation Reports

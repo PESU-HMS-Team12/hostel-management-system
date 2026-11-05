@@ -2,7 +2,7 @@
 
 ## Team 12
 
-A comprehensive web-based Hostel Management System for managing students, hostels, rooms, room allocations, transfers, vacations, allocation history, and occupancy reports.
+A comprehensive web-based Hostel Management System for managing students, hostels, rooms, room allocations, transfers, vacations, allocation history, student self-registration with administrator approval, and occupancy reports.
 
 ### Team Members & Roles
 
@@ -25,17 +25,20 @@ A comprehensive web-based Hostel Management System for managing students, hostel
 ## Architecture & Technology Stack
 
 - **Backend Framework:** Django 6.1.1 & Django REST Framework 3.18
-- **Language / Runtime:** Python 3.12 / 3.13
+- **Frontend Framework:** Next.js 16.4.5 (App Router), React 19, TypeScript 5, Tailwind CSS v4, shadcn/ui (`frontend/`)
+- **Language / Runtime:** Python 3.12 / 3.13 & Node.js 22 LTS
 - **Primary Database:** PostgreSQL (production / CI) with seamless SQLite fallback for local development
-- **API Specification:** OpenAPI 3.0 via `drf-spectacular`
-- **Authentication:** Server-side Django Session Authentication with rolling 30-minute inactivity timeout, secure cookies, and CSRF protection
-- **CORS Support:** `django-cors-headers` configured for frontend decoupling (Next.js)
+- **API Specification:** OpenAPI 3.0 via `drf-spectacular` (`schema.yml`)
+- **Authentication:** Server-side Django Session Authentication with rolling 30-minute inactivity timeout, secure HTTP-only cookies, and CSRF protection
+- **CORS & Proxy Support:** `django-cors-headers` + Next.js same-origin `/api/v1/*` rewrites
 
 ---
 
 ## Environment Variables & Configuration
 
 The application is configured using Twelve-Factor environment variables:
+
+### Backend Environment Variables
 
 | Variable | Description | Default (Development) |
 |---|---|---|
@@ -52,44 +55,76 @@ The application is configured using Twelve-Factor environment variables:
 | `CSRF_TRUSTED_ORIGINS` | Comma-separated CSRF trusted origins | `http://localhost:3000,http://127.0.0.1:3000` |
 | `SECURE_SSL_REDIRECT` | Toggle HTTPS redirect (`true`/`false`) | `false` in dev/CI, `true` when `DEBUG=false` |
 | `CONN_MAX_AGE` | Persistent DB connection timeout (seconds) | `600` in prod, `0` in test runs |
+| `HMS_BOOTSTRAP_ADMIN_PASSWORD` | Password used by `python manage.py bootstrap_admin` when `--password` is omitted | `None` |
+
+### Frontend Environment Variables (`frontend/.env.local`)
+
+| Variable | Description | Default |
+|---|---|---|
+| `NEXT_PUBLIC_API_BASE_URL` | Base URL for HMS REST API requests | `"/api/v1"` |
+| `BACKEND_ORIGIN` | Target Django backend origin for Next.js `/api/v1/*` proxy rewrites | `"http://127.0.0.1:8000"` |
+| `NEXT_PUBLIC_HMS_DEMO_MODE` | Opt-in in-memory demo fixture mode (`"true"` / `"false"`) | `"false"` (Live API mode default) |
 
 ---
 
-## Local Development Setup
+## Local Development Setup (Backend + Frontend)
 
-### 1. Clone & Set Up Virtual Environment
+### 1. Clone & Set Up Python Backend
 
 ```bash
 git clone https://github.com/PESU-HMS-Team12/hostel-management-system.git
 cd hostel-management-system
 
-python -m venv venv
+python -m venv .venv
 # On Windows:
-.\venv\Scripts\activate
+.\.venv\Scripts\activate
 # On Linux/macOS:
-source venv/bin/activate
+source .venv/bin/activate
 
 pip install -r requirements.txt
-```
-
-### 2. Configure Database & Run Migrations
-
-To use local SQLite:
-```bash
 python manage.py migrate
+python manage.py collectstatic --noinput
 ```
 
-To use PostgreSQL locally:
+### 2. First-Administrator Bootstrap Procedure (Trusted Server-Side Provisioning)
+
+Because approving student registrations and assigning `WARDEN` or `ADMINISTRATOR` roles requires an authenticated Administrator (`IsAdministrator`), the initial Administrator account is provisioned through a trusted server-side Django management command (`bootstrap_admin`). Public self-registration for `WARDEN` or `ADMINISTRATOR` roles is strictly prohibited.
+
+Run the following command on the backend host:
+
 ```bash
-export DATABASE_URL="postgresql://postgres:password@localhost:5432/hms_db"
-python manage.py migrate
+# Option A: Supply password via environment variable (recommended for production/CI)
+export HMS_BOOTSTRAP_ADMIN_PASSWORD="YourStrongAdminPassword!2026"
+python manage.py bootstrap_admin \
+  --username admin.pesu \
+  --email admin.hms@pes.edu \
+  --first-name Chief \
+  --last-name Administrator
+
+# Option B: Supply password via CLI flag (local development)
+python manage.py bootstrap_admin \
+  --username admin.pesu \
+  --email admin.hms@pes.edu \
+  --password "YourStrongAdminPassword!2026"
 ```
 
-### 3. Run the Development Server
+This command atomically creates (or updates) the Django `User` (`is_active=True`, `is_staff=True`, `is_superuser=True`), links a `RoleProfile(role="ADMINISTRATOR", student=None)`, and records an `AuditLog` entry.
 
+### 3. Start the Backend & Frontend Servers
+
+**Terminal 1 — Django REST API (`http://127.0.0.1:8000`):**
 ```bash
 python manage.py runserver
 ```
+
+**Terminal 2 — Next.js Frontend (`http://localhost:3000`):**
+```bash
+cd frontend
+npm ci
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000). Unauthenticated visitors are directed to `/login`.
 
 ---
 
@@ -107,8 +142,9 @@ python manage.py runserver
 - `GET /api/v1/health/` — Service readiness probe and database health check (AllowAny)
 - `GET /api/v1/auth/csrf/` — Sets and returns CSRF cookie/token for SPA clients (AllowAny)
 
-#### 2. Authentication
+#### 2. Authentication & Student Self-Registration
 - `POST /api/v1/auth/login/` — Authenticate via username or email; initiates server-side session
+- `POST /api/v1/auth/signup/` — Public CSRF-protected student self-registration; verifies active `Student` record (`student_id` + matching `contact`), creates pending (`is_active=False`) `User` + `RoleProfile(role=STUDENT)`, and logs to `AuditLog`
 - `POST /api/v1/auth/logout/` — Flushes server-side session and invalidates cookies (Authenticated)
 - `GET /api/v1/auth/me/` — Returns current authenticated user, role, and active allocation (Authenticated)
 
@@ -136,7 +172,8 @@ python manage.py runserver
 - `POST /api/v1/allocations/{id}/vacate/` — Atomically check out and vacate student
 
 #### 6. Administration (Administrator Only)
-- `GET /api/v1/admin/users/` — List all user accounts and their assigned HMS roles
+- `GET /api/v1/admin/users/` — List all user accounts (including pending `is_active=False` registrations) and their assigned HMS roles
+- `POST /api/v1/admin/users/{user_id}/approve/` — Approve and activate a pending user registration (audited)
 - `POST /api/v1/admin/roles/` — Assign or update role profile (audited without logging credentials)
 
 #### 7. Reports (Staff)
@@ -147,28 +184,25 @@ python manage.py runserver
 
 ## Testing & Quality Assurance
 
-### Run Unit and Integration Tests
+### Backend Verification
 
 ```bash
-# Run all tests (baseline + API)
-python manage.py test
-
-# Run API test suite only
-python manage.py test api
-
-# Check system configuration
 python manage.py check
-
-# Verify migration integrity
 python manage.py makemigrations --check --dry-run
+python manage.py spectacular --validate --file schema.yml
+python manage.py collectstatic --noinput
+python manage.py test
 ```
 
-### Run Tests with Coverage
+### Frontend Verification
 
 ```bash
-coverage run -m manage test
-coverage report
-coverage xml -o coverage.xml
+cd frontend
+npm ci
+npm run lint
+npx tsc --noEmit
+npm test
+npm run build
 ```
 
 ---
