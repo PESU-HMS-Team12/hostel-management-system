@@ -1,13 +1,21 @@
 from django.contrib.auth import authenticate, get_user_model
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import transaction
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from accounts.decorators import get_user_role
 from accounts.models import RoleProfile
 from allocations.models import Allocation
+from auditlog.services import create_audit_log
 from students.models import Student
 
 User = get_user_model()
+
+
+def _normalize_contact(value: str) -> str:
+    return "".join(ch for ch in str(value or "").strip() if ch.isdigit() or ch == "+")
 
 
 class LoginSerializer(serializers.Serializer):
@@ -36,13 +44,19 @@ class LoginSerializer(serializers.Serializer):
             )
 
         if not user:
+            if auth_username:
+                candidate = User.objects.filter(username__iexact=auth_username).first()
+                if candidate and not candidate.is_active and candidate.check_password(password):
+                    raise serializers.ValidationError(
+                        "Your account is awaiting administrator approval or has been deactivated."
+                    )
             raise serializers.ValidationError(
                 "Invalid username/email or password."
             )
 
         if not user.is_active:
             raise serializers.ValidationError(
-                "This user account is disabled."
+                "Your account is awaiting administrator approval or has been deactivated."
             )
 
         role = get_user_role(user)
@@ -53,6 +67,118 @@ class LoginSerializer(serializers.Serializer):
 
         attrs["user"] = user
         return attrs
+
+
+class StudentSignupSerializer(serializers.Serializer):
+    student_id = serializers.CharField(required=True, max_length=20)
+    contact = serializers.CharField(required=True, max_length=20)
+    email = serializers.EmailField(required=True)
+    username = serializers.CharField(required=True, max_length=150)
+    password = serializers.CharField(required=True, write_only=True, min_length=8)
+    confirm_password = serializers.CharField(required=True, write_only=True, min_length=8)
+
+    def validate(self, attrs):
+        raw_data = getattr(self, "initial_data", {}) or {}
+        if "role" in raw_data and str(raw_data.get("role")).strip().upper() not in ("", "STUDENT"):
+            raise serializers.ValidationError(
+                {"non_field_errors": ["Public self-registration is restricted to student accounts only."]}
+            )
+
+        student_id = attrs.get("student_id", "").strip()
+        contact = attrs.get("contact", "").strip()
+        email = attrs.get("email", "").strip().lower()
+        username = attrs.get("username", "").strip()
+        password = attrs.get("password", "")
+        confirm_password = attrs.get("confirm_password", "")
+
+        if password != confirm_password:
+            raise serializers.ValidationError(
+                {"confirm_password": ["Password and confirmation password do not match."]}
+            )
+
+        student = Student.objects.filter(student_id__iexact=student_id).first()
+        if (
+            not student
+            or student.status != "Active"
+            or _normalize_contact(student.contact) != _normalize_contact(contact)
+            or not _normalize_contact(contact)
+        ):
+            raise serializers.ValidationError(
+                {
+                    "student_id": [
+                        "No active student record matches the provided Student ID and registered contact number."
+                    ]
+                }
+            )
+
+        if RoleProfile.objects.filter(student=student).exists():
+            raise serializers.ValidationError(
+                {"student_id": ["An account has already been registered for this student record."]}
+            )
+
+        if User.objects.filter(username__iexact=username).exists():
+            raise serializers.ValidationError(
+                {"username": ["A user with that username already exists."]}
+            )
+
+        if User.objects.filter(email__iexact=email).exists():
+            raise serializers.ValidationError(
+                {"email": ["A user with that email address already exists."]}
+            )
+
+        name_parts = student.name.strip().split(None, 1)
+        first_name = name_parts[0] if name_parts else ""
+        last_name = name_parts[1] if len(name_parts) > 1 else ""
+
+        candidate_user = User(
+            username=username,
+            email=email,
+            first_name=first_name,
+            last_name=last_name,
+        )
+        try:
+            validate_password(password, user=candidate_user)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError({"password": list(exc.messages)})
+
+        attrs["student"] = student
+        attrs["email"] = email
+        attrs["username"] = username
+        attrs["first_name"] = first_name
+        attrs["last_name"] = last_name
+        return attrs
+
+    def create(self, validated_data):
+        student = validated_data["student"]
+        with transaction.atomic():
+            locked_student = Student.objects.select_for_update().get(pk=student.pk)
+            if RoleProfile.objects.filter(student=locked_student).exists():
+                raise serializers.ValidationError(
+                    {"student_id": ["An account has already been registered for this student record."]}
+                )
+
+            user = User.objects.create_user(
+                username=validated_data["username"],
+                email=validated_data["email"],
+                password=validated_data["password"],
+                first_name=validated_data["first_name"],
+                last_name=validated_data["last_name"],
+                is_active=False,
+            )
+            profile = RoleProfile.objects.create(
+                user=user,
+                role=RoleProfile.Role.STUDENT,
+                student=locked_student,
+            )
+            create_audit_log(None, "CREATE", "RoleProfile", profile.pk)
+        return user
+
+
+class StudentSignupResponseSerializer(serializers.Serializer):
+    message = serializers.CharField(read_only=True)
+    username = serializers.CharField(read_only=True)
+    student_id = serializers.CharField(read_only=True)
+    status = serializers.CharField(read_only=True)
 
 
 class NestedStudentSerializer(serializers.ModelSerializer):
