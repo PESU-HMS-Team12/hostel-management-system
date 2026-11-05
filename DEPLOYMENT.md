@@ -37,6 +37,7 @@ Never commit `.env` or production secrets into source control. Store secrets in 
 | `DATABASE_URL` | Production | Yes | PostgreSQL connection string (`postgresql://user:pass@host:5432/dbname`). |
 | `CORS_ALLOWED_ORIGINS` | Production | Yes | Comma-separated list of allowed frontend origins (e.g., `https://hms.pes.edu`). |
 | `CSRF_TRUSTED_ORIGINS` | Production | Yes | Comma-separated list of trusted CSRF origins (e.g., `https://hms.pes.edu`). |
+| `SECURE_SSL_REDIRECT` | Production / CI | No | Toggles HTTPS redirect. Defaults to `true` when `DEBUG=false`; set to `false` in CI test environments. |
 | `SONAR_TOKEN` | CI/CD | Yes | SonarCloud project token stored in GitHub Secrets. |
 
 ---

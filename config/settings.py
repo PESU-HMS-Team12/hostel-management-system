@@ -247,5 +247,9 @@ SESSION_COOKIE_SAMESITE = "Lax"
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
 
-# Require HTTPS outside development
-SECURE_SSL_REDIRECT = not DEBUG
+# Require HTTPS outside development; can be explicitly configured via environment (e.g. disabled for CI test suites)
+secure_ssl_redirect_env = os.environ.get("SECURE_SSL_REDIRECT")
+if secure_ssl_redirect_env is not None:
+    SECURE_SSL_REDIRECT = secure_ssl_redirect_env.lower() in {"1", "true", "yes"}
+else:
+    SECURE_SSL_REDIRECT = not DEBUG
