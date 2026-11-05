@@ -192,9 +192,9 @@ The repository implements an automated GitHub Actions CI/CD workflow defined in 
   9. Uploads `coverage.xml` as a GitHub Actions artifact (`backend-coverage-report`).
   10. Executes SonarCloud code quality & security scanning.
 
-### 2. Frontend CI (`frontend` — ON HOLD)
-- **Status:** **ON HOLD** pending merge of the Next.js frontend branch.
-- **Workflow:** Detects `package.json`. When present, executes Node.js 20 LTS setup, `npm ci`, ESLint, TypeScript verification (`tsc --noEmit`), Jest tests with coverage, and Next.js production build (`npm run build`).
+### 2. Frontend CI (`frontend`)
+- **Status:** **Active** (integrated with Next.js 16 frontend in `frontend/`).
+- **Workflow:** Runs on Node.js 22 LTS with `npm` dependency caching, executing `npm ci`, ESLint (`npm run lint`), TypeScript verification (`npx tsc --noEmit`), automated test suite (`npm test`), and Next.js production build (`npm run build`).
 
 ### 3. SonarCloud Code Analysis
 - **Organization:** `pesu-hms-team12`

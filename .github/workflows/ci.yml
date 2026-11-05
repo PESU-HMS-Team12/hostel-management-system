@@ -98,58 +98,34 @@ jobs:
         continue-on-error: true
 
   frontend:
-    name: Frontend CI (ON HOLD — Awaiting Next.js Merge)
+    name: Frontend CI (Next.js 16)
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Inspect frontend availability
-        id: check_frontend
-        run: |
-          if [ -f "package.json" ]; then
-            echo "Frontend configuration detected (package.json found)."
-            echo "frontend_exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "Frontend codebase is not present on this branch."
-            echo "frontend_exists=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Set up Node.js 20 (LTS)
-        if: steps.check_frontend.outputs.frontend_exists == 'true'
+      - name: Set up Node.js 22 LTS
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies using lockfile
-        if: steps.check_frontend.outputs.frontend_exists == 'true'
         run: npm ci
 
       - name: Run ESLint
-        if: steps.check_frontend.outputs.frontend_exists == 'true'
         run: npm run lint
 
       - name: Run TypeScript type check
-        if: steps.check_frontend.outputs.frontend_exists == 'true'
         run: npx tsc --noEmit
 
-      - name: Run frontend tests with coverage
-        if: steps.check_frontend.outputs.frontend_exists == 'true'
-        run: npm test -- --coverage
+      - name: Run frontend automated test suite
+        run: npm test
 
       - name: Build Next.js production bundle
-        if: steps.check_frontend.outputs.frontend_exists == 'true'
         run: npm run build
-
-      - name: Report frontend ON HOLD status
-        if: steps.check_frontend.outputs.frontend_exists == 'false'
-        run: |
-          echo "================================================================================"
-          echo "STATUS: FRONTEND CI IS ON HOLD"
-          echo "Missing Prerequisite: The Next.js frontend is maintained by teammates in a"
-          echo "separate branch and has not yet been merged into this repository branch."
-          echo "Prepared Pipeline: Node.js 20 LTS, npm ci, ESLint, TypeScript, tests, and build."
-          echo "Action Required: Merge frontend pull request to activate frontend verification."
-          echo "================================================================================"
