@@ -1139,6 +1139,30 @@ class StudentSignupAndApprovalAPITests(TestCase):
         warden_approve = self.client.post(approve_url)
         self.assertEqual(warden_approve.status_code, status.HTTP_403_FORBIDDEN)
 
+        # Active student cannot approve
+        active_student_record = Student.objects.create(
+            student_id="PES1UG23CS999",
+            name="Active Student Actor",
+            contact="9876543999",
+            course_program="B.Tech CSE",
+            year=3,
+            status="Active",
+        )
+        active_student_user = User.objects.create_user(
+            username="active_student_actor",
+            email="active.actor@stu.pes.edu",
+            password="StrongStudentPass!901",
+            is_active=True,
+        )
+        RoleProfile.objects.create(
+            user=active_student_user,
+            role=RoleProfile.Role.STUDENT,
+            student=active_student_record,
+        )
+        self.client.force_login(active_student_user)
+        student_approve = self.client.post(approve_url)
+        self.assertEqual(student_approve.status_code, status.HTTP_403_FORBIDDEN)
+
         # Administrator approves
         self.client.force_login(self.admin)
         admin_approve = self.client.post(approve_url)
@@ -1154,6 +1178,70 @@ class StudentSignupAndApprovalAPITests(TestCase):
                 record_id=str(pending_user.pk),
             ).exists()
         )
+
+        # Approving an already-active account again is rejected with 400
+        approve_again = self.client.post(approve_url)
+        self.assertEqual(approve_again.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Approving an account without a RoleProfile is rejected with 400
+        unassigned_inactive = User.objects.create_user(
+            username="unassigned_inactive",
+            email="unassigned@stu.pes.edu",
+            password="StrongStudentPass!901",
+            is_active=False,
+        )
+        unassigned_approve = self.client.post(
+            reverse("api_v1:admin-user-approve", kwargs={"user_id": unassigned_inactive.pk})
+        )
+        self.assertEqual(unassigned_approve.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Approving an inactive Warden or Administrator account is rejected with 400
+        inactive_warden = User.objects.create_user(
+            username="inactive_warden_acc",
+            email="inactive.warden@pes.edu",
+            password="WardenPassword!482",
+            is_active=False,
+        )
+        RoleProfile.objects.create(
+            user=inactive_warden,
+            role=RoleProfile.Role.WARDEN,
+        )
+        warden_acc_approve = self.client.post(
+            reverse("api_v1:admin-user-approve", kwargs={"user_id": inactive_warden.pk})
+        )
+        self.assertEqual(warden_acc_approve.status_code, status.HTTP_400_BAD_REQUEST)
+
+        inactive_admin = User.objects.create_user(
+            username="inactive_admin_acc",
+            email="inactive.admin@pes.edu",
+            password="AdminPassword!482",
+            is_active=False,
+        )
+        RoleProfile.objects.create(
+            user=inactive_admin,
+            role=RoleProfile.Role.ADMINISTRATOR,
+        )
+        admin_acc_approve = self.client.post(
+            reverse("api_v1:admin-user-approve", kwargs={"user_id": inactive_admin.pk})
+        )
+        self.assertEqual(admin_acc_approve.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Approving a pending student linked to an inactive Student record is rejected with 400
+        pending_inactive_stu = User.objects.create_user(
+            username="pending_inactive_stu",
+            email="pending.inactive@stu.pes.edu",
+            password="StrongStudentPass!901",
+            is_active=False,
+        )
+        RoleProfile.objects.create(
+            user=pending_inactive_stu,
+            role=RoleProfile.Role.STUDENT,
+            student=self.inactive_student,
+        )
+        inactive_stu_approve = self.client.post(
+            reverse("api_v1:admin-user-approve", kwargs={"user_id": pending_inactive_stu.pk})
+        )
+        self.assertEqual(inactive_stu_approve.status_code, status.HTTP_400_BAD_REQUEST)
 
         # Now student can log in
         self.client.logout()
@@ -1211,7 +1299,7 @@ class StudentSignupAndApprovalAPITests(TestCase):
 
 class BootstrapAdminCommandTests(TestCase):
 
-    def test_bootstrap_admin_provisions_active_administrator(self):
+    def test_bootstrap_admin_provisions_active_administrator_without_superuser(self):
         out = StringIO()
         call_command(
             "bootstrap_admin",
@@ -1224,17 +1312,95 @@ class BootstrapAdminCommandTests(TestCase):
         )
         user = User.objects.get(username="initial_hms_admin")
         self.assertTrue(user.is_active)
-        self.assertTrue(user.is_staff)
-        self.assertTrue(user.is_superuser)
+        self.assertFalse(user.is_staff)
+        self.assertFalse(user.is_superuser)
+        self.assertTrue(user.check_password("AdminBootstrapPass!2026"))
         profile = RoleProfile.objects.get(user=user)
         self.assertEqual(profile.role, RoleProfile.Role.ADMINISTRATOR)
         self.assertTrue(
             AuditLog.objects.filter(
                 user=user,
+                action_type="CREATE",
                 entity_type="RoleProfile",
                 record_id=str(profile.pk),
             ).exists()
         )
+
+    def test_bootstrap_admin_refuses_when_administrator_already_exists(self):
+        existing_admin = User.objects.create_user(
+            username="existing_admin",
+            email="existing.admin@pes.edu",
+            password="ExistingAdminPass!2026",
+            is_active=True,
+        )
+        RoleProfile.objects.create(
+            user=existing_admin,
+            role=RoleProfile.Role.ADMINISTRATOR,
+        )
+
+        with self.assertRaisesMessage(
+            CommandError,
+            "An active HMS Administrator account already exists.",
+        ):
+            call_command(
+                "bootstrap_admin",
+                "--username=second_admin",
+                "--email=second.admin@pes.edu",
+                "--password=SecondAdminPass!2026",
+            )
+        self.assertFalse(User.objects.filter(username="second_admin").exists())
+
+    def test_bootstrap_admin_refuses_when_username_already_exists_without_modifying(self):
+        existing_user = User.objects.create_user(
+            username="existing_warden",
+            email="warden.orig@pes.edu",
+            password="OriginalPassword!2026",
+            is_active=False,
+        )
+        RoleProfile.objects.create(
+            user=existing_user,
+            role=RoleProfile.Role.WARDEN,
+        )
+
+        with self.assertRaisesMessage(
+            CommandError,
+            "Username 'existing_warden' already exists.",
+        ):
+            call_command(
+                "bootstrap_admin",
+                "--username=existing_warden",
+                "--email=new.email@pes.edu",
+                "--password=AttemptedNewPass!2026",
+            )
+
+        existing_user.refresh_from_db()
+        self.assertEqual(existing_user.email, "warden.orig@pes.edu")
+        self.assertFalse(existing_user.is_active)
+        self.assertTrue(existing_user.check_password("OriginalPassword!2026"))
+        self.assertEqual(existing_user.role_profile.role, RoleProfile.Role.WARDEN)
+
+    def test_bootstrap_admin_refuses_when_email_already_exists_without_modifying(self):
+        existing_user = User.objects.create_user(
+            username="student_holder",
+            email="shared.email@pes.edu",
+            password="OriginalPassword!2026",
+            is_active=True,
+        )
+
+        with self.assertRaisesMessage(
+            CommandError,
+            "Email 'shared.email@pes.edu' is already associated with an existing account.",
+        ):
+            call_command(
+                "bootstrap_admin",
+                "--username=brand_new_admin",
+                "--email=shared.email@pes.edu",
+                "--password=ValidBootstrapPass!2026",
+            )
+
+        self.assertFalse(User.objects.filter(username="brand_new_admin").exists())
+        existing_user.refresh_from_db()
+        self.assertTrue(existing_user.check_password("OriginalPassword!2026"))
 
     def test_bootstrap_admin_rejects_weak_password(self):
         with self.assertRaises(CommandError):

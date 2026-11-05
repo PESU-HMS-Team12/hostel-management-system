@@ -106,7 +106,6 @@ class AdminUserApproveView(APIView):
             user = (
                 User.objects
                 .select_for_update()
-                .select_related("role_profile", "role_profile__student")
                 .filter(pk=user_id)
                 .first()
             )
@@ -116,16 +115,31 @@ class AdminUserApproveView(APIView):
                     status=status.HTTP_404_NOT_FOUND,
                 )
 
-            profile = getattr(user, "role_profile", None)
-            if not profile:
-                return Response(
-                    {"detail": "Cannot approve a user account without an assigned HMS role profile."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
             if user.is_active:
                 return Response(
                     {"detail": "User account is already active."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            profile = (
+                RoleProfile.objects
+                .select_related("student")
+                .filter(user=user)
+                .first()
+            )
+            if (
+                not profile
+                or profile.role != RoleProfile.Role.STUDENT
+                or not profile.student
+                or profile.student.status != "Active"
+            ):
+                return Response(
+                    {
+                        "detail": (
+                            "Only pending STUDENT accounts linked to an active "
+                            "student record can be approved."
+                        )
+                    },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 

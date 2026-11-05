@@ -14,7 +14,7 @@ User = get_user_model()
 
 class Command(BaseCommand):
     help = (
-        "Trusted server-side bootstrap command to provision or promote the initial "
+        "Trusted server-side bootstrap command to provision the initial "
         "HMS Administrator account with RoleProfile.Role.ADMINISTRATOR."
     )
 
@@ -76,49 +76,52 @@ class Command(BaseCommand):
             raise CommandError("; ".join(exc.messages)) from exc
 
         with transaction.atomic():
-            user = User.objects.filter(username__iexact=username).first()
-            is_new_user = user is None
-
-            if is_new_user:
-                user = User.objects.create_user(
-                    username=username,
-                    email=email,
-                    password=password,
-                    first_name=first_name,
-                    last_name=last_name,
-                    is_active=True,
-                    is_staff=True,
-                    is_superuser=True,
+            if RoleProfile.objects.filter(
+                role=RoleProfile.Role.ADMINISTRATOR,
+                user__is_active=True,
+            ).exists():
+                raise CommandError(
+                    "An active HMS Administrator account already exists. "
+                    "Initial bootstrap is restricted to provisioning the first administrator."
                 )
-            else:
-                user.email = email
-                user.first_name = first_name
-                user.last_name = last_name
-                user.is_active = True
-                user.is_staff = True
-                user.is_superuser = True
-                user.set_password(password)
-                user.save()
 
-            profile = RoleProfile.objects.filter(user=user).first()
-            is_new_profile = profile is None
-            if is_new_profile:
-                profile = RoleProfile(user=user)
+            if User.objects.filter(username__iexact=username).exists():
+                raise CommandError(
+                    f"Username '{username}' already exists. "
+                    "Bootstrap cannot modify or promote existing accounts."
+                )
 
-            profile.role = RoleProfile.Role.ADMINISTRATOR
-            profile.student = None
-            profile.save()
+            if User.objects.filter(email__iexact=email).exists():
+                raise CommandError(
+                    f"Email '{email}' is already associated with an existing account."
+                )
+
+            user = User.objects.create_user(
+                username=username,
+                email=email,
+                password=password,
+                first_name=first_name,
+                last_name=last_name,
+                is_active=True,
+                is_staff=False,
+                is_superuser=False,
+            )
+
+            profile = RoleProfile.objects.create(
+                user=user,
+                role=RoleProfile.Role.ADMINISTRATOR,
+                student=None,
+            )
 
             create_audit_log(
                 user,
-                "CREATE" if is_new_profile else "UPDATE",
+                "CREATE",
                 "RoleProfile",
                 profile.pk,
             )
 
-        action_label = "Created" if is_new_user else "Updated"
         self.stdout.write(
             self.style.SUCCESS(
-                f"{action_label} HMS Administrator '{user.username}' ({user.email}) with active ADMINISTRATOR role."
+                f"Created HMS Administrator '{user.username}' ({user.email}) with active ADMINISTRATOR role."
             )
         )
