@@ -265,7 +265,7 @@ Navigate to **GitHub Repository Settings > Branches > Add branch protection rule
      - Require branches to be up to date before merging
      - **Required Status Checks:**
        - `Backend CI & Quality Analysis`
-       - `Frontend CI (ON HOLD — Awaiting Next.js Merge)` (or `Frontend CI` when merged)
+       - `Frontend CI (Next.js 16)`
        - `SonarCloud Code Analysis`
    - [x] **Require conversation resolution before merging**
    - [x] **Do not allow bypassing the above settings**
