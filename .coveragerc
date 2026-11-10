@@ -1,0 +1,20 @@
+[run]
+branch = True
+source =
+    accounts
+    allocations
+    api
+    auditlog
+    config
+    hostels
+    students
+omit =
+    */migrations/*
+    */tests.py
+    */test_*.py
+    */*_tests.py
+
+[report]
+show_missing = True
+skip_covered = True
+precision = 2

@@ -333,3 +333,161 @@ class RoomUpdateTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.room.refresh_from_db()
         self.assertEqual(self.room.capacity, 2)
+
+
+class HostelAndRoomWorkflowViewTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.warden = User.objects.create_user(username="hostel_workflow_warden")
+        RoleProfile.objects.create(user=cls.warden, role=RoleProfile.Role.WARDEN)
+        cls.hostel = Hostel.objects.create(
+            hostel_id="WORKFLOW-H-01",
+            name="Workflow Hostel",
+            block_location="North Block",
+            status="Active",
+        )
+        cls.inactive_hostel = Hostel.objects.create(
+            hostel_id="WORKFLOW-H-02",
+            name="Inactive Hostel",
+            block_location="South Block",
+            status="Inactive",
+        )
+        cls.room = Room.objects.create(
+            room_id="WORKFLOW-R-01",
+            hostel=cls.hostel,
+            room_no="101",
+            room_type="Double",
+            capacity=2,
+            status="Available",
+        )
+
+    def setUp(self):
+        self.client.force_login(self.warden)
+
+    def test_hostel_create_validation_duplicate_and_success(self):
+        url = reverse("hostel_create")
+        self.assertEqual(self.client.get(url).status_code, 200)
+
+        missing = self.client.post(url, {"hostel_id": ""})
+        self.assertEqual(missing.status_code, 200)
+
+        duplicate = self.client.post(
+            url,
+            {
+                "hostel_id": self.hostel.hostel_id,
+                "name": "Duplicate",
+                "block_location": "North",
+            },
+        )
+        self.assertEqual(duplicate.status_code, 200)
+
+        response = self.client.post(
+            url,
+            {
+                "hostel_id": "WORKFLOW-H-03",
+                "name": "New Hostel",
+                "block_location": "East Block",
+            },
+        )
+        created = Hostel.objects.get(hostel_id="WORKFLOW-H-03")
+        self.assertRedirects(response, reverse("hostel_detail", args=[created.pk]))
+        self.assertEqual(created.status, "Active")
+
+    def test_hostel_list_detail_and_update_validation(self):
+        self.assertEqual(self.client.get(reverse("hostel_list")).status_code, 200)
+        self.assertEqual(
+            self.client.get(reverse("hostel_detail", args=[self.hostel.pk])).status_code,
+            200,
+        )
+        self.assertEqual(
+            self.client.get(reverse("hostel_detail", args=[99999])).status_code,
+            404,
+        )
+
+        url = reverse("hostel_update", args=[self.hostel.pk])
+        self.assertEqual(self.client.get(url).status_code, 200)
+        invalid = self.client.post(
+            url,
+            {"name": "", "block_location": "North Block", "status": "Active"},
+        )
+        self.assertEqual(invalid.status_code, 200)
+        self.hostel.refresh_from_db()
+        self.assertEqual(self.hostel.name, "Workflow Hostel")
+
+        response = self.client.post(
+            url,
+            {
+                "name": "Workflow Hostel Updated",
+                "block_location": "West Block",
+                "status": "Inactive",
+            },
+        )
+        self.assertRedirects(response, reverse("hostel_detail", args=[self.hostel.pk]))
+        self.hostel.refresh_from_db()
+        self.assertEqual(self.hostel.status, "Inactive")
+
+    def test_room_list_and_create_validation_and_audit(self):
+        self.assertEqual(self.client.get(reverse("room_list")).status_code, 200)
+        url = reverse("room_create")
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(list(response.context["hostels"]), [self.hostel])
+
+        missing = self.client.post(url, {"room_id": ""})
+        self.assertEqual(missing.status_code, 200)
+
+        invalid_capacity = self.client.post(
+            url,
+            {
+                "room_id": "WORKFLOW-R-02",
+                "room_no": "102",
+                "room_type": "Single",
+                "capacity": "not-a-number",
+                "hostel_id": self.hostel.pk,
+            },
+        )
+        self.assertEqual(invalid_capacity.status_code, 200)
+
+        duplicate_id = self.client.post(
+            url,
+            {
+                "room_id": self.room.room_id,
+                "room_no": "102",
+                "room_type": "Single",
+                "capacity": "1",
+                "hostel_id": self.hostel.pk,
+            },
+        )
+        self.assertEqual(duplicate_id.status_code, 200)
+
+        inactive_hostel = self.client.post(
+            url,
+            {
+                "room_id": "WORKFLOW-R-03",
+                "room_no": "103",
+                "room_type": "Single",
+                "capacity": "1",
+                "hostel_id": self.inactive_hostel.pk,
+            },
+        )
+        self.assertEqual(inactive_hostel.status_code, 404)
+
+        response = self.client.post(
+            url,
+            {
+                "room_id": "WORKFLOW-R-04",
+                "room_no": "104",
+                "room_type": "Single",
+                "capacity": "1",
+                "hostel_id": self.hostel.pk,
+            },
+        )
+        self.assertRedirects(response, reverse("room_list"))
+        self.assertTrue(
+            AuditLog.objects.filter(
+                user=self.warden,
+                action_type="CREATE",
+                entity_type="Room",
+                record_id="WORKFLOW-R-04",
+            ).exists()
+        )

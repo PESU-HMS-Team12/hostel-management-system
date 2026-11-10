@@ -13,6 +13,7 @@ const jiti = createJiti(import.meta.url, {
   jsx: { runtime: "automatic" },
   alias: {
     "@": srcDir,
+    "next/navigation": path.resolve(__dirname, "mocks/next-navigation.ts"),
   },
 });
 
@@ -41,6 +42,14 @@ const allocationsViewMod = await jiti.import(
 const usersRolesViewMod = await jiti.import(
   "@/components/admin/users-roles-view"
 );
+const studentFormMod = await jiti.import("@/components/students/student-form");
+const studentDetailMod = await jiti.import(
+  "@/components/students/student-detail-view"
+);
+const loginPageMod = await jiti.import("@/app/login/page");
+const signupPageMod = await jiti.import("@/app/signup/page");
+const homePageMod = await jiti.import("@/app/page");
+const settingsPageMod = await jiti.import("@/app/settings/page");
 
 const {
   validateStudent,
@@ -79,13 +88,23 @@ const { HostelsView } = hostelsViewMod;
 const { RoomsView } = roomsViewMod;
 const { AllocationsView } = allocationsViewMod;
 const { UsersRolesView } = usersRolesViewMod;
+const { StudentForm } = studentFormMod;
+const { StudentDetailView } = studentDetailMod;
+const LoginPage = loginPageMod.default;
+const SignupPage = signupPageMod.default;
+const HomePage = homePageMod.default;
+const SettingsPage = settingsPageMod.default;
 
-function renderWithDemoProvider(Component) {
+function renderWithDemoProvider(
+  Component,
+  componentProps = {},
+  providerProps = {}
+) {
   return renderToStaticMarkup(
     React.createElement(
       HmsDataProvider,
-      { initialDemoMode: true },
-      React.createElement(Component)
+      { initialDemoMode: true, ...providerProps },
+      React.createElement(Component, componentProps)
     )
   );
 }
@@ -1026,5 +1045,81 @@ describe("7. Django API URL Trailing Slash Contract & HTTP Client Verification",
       globalThis.fetch = originalFetch;
       resetCsrfTokenCache();
     }
+  });
+
+  it("renders student create and edit forms with their corresponding actions", () => {
+    const createHtml = renderWithDemoProvider(StudentForm);
+    assert.match(createHtml, /Student ID \(SRN\)/);
+    assert.match(createHtml, /Register Student/);
+
+    const student = createInitialDemoState().students[0];
+    const editHtml = renderWithDemoProvider(StudentForm, {
+      initialStudent: student,
+    });
+    assert.match(editHtml, /Save Student Changes/);
+    assert.match(editHtml, /value="PES2UG24CS001"/);
+  });
+
+  it("renders current student details and the not-found state", () => {
+    const detailHtml = renderWithDemoProvider(StudentDetailView, {
+      studentIdParam: "1",
+    });
+    assert.match(detailHtml, /Aarav Sharma \(PES2UG24CS001\)/);
+    assert.match(detailHtml, /Current Room Allocation/);
+    assert.match(detailHtml, /Allocation History/);
+
+    const missingHtml = renderWithDemoProvider(StudentDetailView, {
+      studentIdParam: "missing-record",
+    });
+    assert.match(missingHtml, /Student Record Not Found/);
+    assert.match(missingHtml, /missing-record/);
+  });
+
+  it("renders the implemented login and signup page forms", () => {
+    const loginHtml = renderWithDemoProvider(LoginPage);
+    assert.match(loginHtml, /Sign in to HMS/);
+    assert.match(loginHtml, /login-username/);
+    assert.match(loginHtml, /login-password/);
+
+    const signupHtml = renderWithDemoProvider(SignupPage);
+    assert.match(signupHtml, /Create Student Account/);
+    assert.match(signupHtml, /student_id/);
+    assert.match(signupHtml, /Submit Student Registration/);
+  });
+
+  it("renders the home page's loading and unauthenticated states", () => {
+    const renderHome = (authStatus) =>
+      renderToStaticMarkup(
+        React.createElement(
+          HmsDataProvider,
+          { initialDemoMode: true, initialAuthStatus: authStatus },
+          React.createElement(HomePage)
+        )
+      );
+
+    assert.match(renderHome("loading"), /Loading HMS Workspace/);
+    const unauthenticatedHtml = renderHome("unauthenticated");
+    assert.match(unauthenticatedHtml, /Hostel Management System/);
+    assert.match(unauthenticatedHtml, /Sign In to HMS/);
+  });
+
+  it("renders the authenticated administrator navigation and main content", () => {
+    const shellHtml = renderWithDemoProvider(
+      shellMod.HmsShell,
+      {
+        children: React.createElement("p", null, "Shell content"),
+      },
+      { initialDemoRole: "ADMINISTRATOR" }
+    );
+    assert.match(shellHtml, /Administrator Navigation/);
+    assert.match(shellHtml, /Role Management/);
+    assert.match(shellHtml, /DEMO DATA/);
+    assert.match(shellHtml, /Shell content/);
+  });
+
+  it("renders the implemented settings page", () => {
+    const settingsHtml = renderWithDemoProvider(SettingsPage);
+    assert.match(settingsHtml, /Settings/);
+    assert.match(settingsHtml, /DEMO DATA/);
   });
 });

@@ -75,19 +75,28 @@ jobs:
       - name: Collect static assets
         run: python manage.py collectstatic --noinput
 
+      - name: Reset backend coverage data
+        run: coverage erase
+
       - name: Run automated test suite against PostgreSQL with coverage
-        run: coverage run -m manage test
+        run: coverage run manage.py test
 
       - name: Generate coverage report
         run: |
           coverage report
+          coverage html
           coverage xml -o coverage.xml
+          coverage json -o coverage.json
+          python scripts/check_coverage.py coverage.json
 
       - name: Upload coverage report artifact
         uses: actions/upload-artifact@v4
         with:
           name: backend-coverage-report
-          path: coverage.xml
+          path: |
+            coverage.xml
+            coverage.json
+            htmlcov/
           retention-days: 7
 
       - name: SonarCloud Quality Analysis
@@ -124,8 +133,16 @@ jobs:
       - name: Run TypeScript type check
         run: npx tsc --noEmit
 
-      - name: Run frontend automated test suite
-        run: npm test
+      - name: Run frontend tests and enforce statement coverage
+        run: npm run test:coverage
+
+      - name: Upload frontend coverage reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage-report
+          path: |
+            frontend/coverage/
+          retention-days: 7
 
       - name: Build Next.js production bundle
         run: npm run build

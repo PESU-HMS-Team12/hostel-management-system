@@ -1,17 +1,21 @@
 from datetime import date, timedelta
+from unittest.mock import patch
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import connection, connections
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
-from rest_framework import status
-from rest_framework.test import APIClient
+from rest_framework import exceptions, status
+from rest_framework.request import Request
+from rest_framework.test import APIClient, APIRequestFactory
 
 from accounts.models import RoleProfile
 from allocations.models import Allocation
 from api.exceptions import custom_exception_handler
 from api.permissions import (
+    HasHMSRole,
     IsAdministrator,
     IsOwnerStudentOrStaff,
     IsStudentUser,
@@ -38,6 +42,20 @@ class HealthCheckAPITests(TestCase):
         self.assertIn("timestamp", response.data)
         self.assertEqual(response.data["services"]["database"], "operational")
 
+    def test_health_check_reports_unexpected_database_response(self):
+        with patch("api.views.health.connection.cursor") as cursor_factory:
+            cursor = cursor_factory.return_value.__enter__.return_value
+            cursor.fetchone.return_value = (0,)
+
+            response = self.client.get(reverse("api_v1:health"))
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(response.data["status"], "unhealthy")
+        self.assertEqual(
+            response.data["services"]["database"],
+            "unexpected_response",
+        )
+
 
 class CustomExceptionHandlerTests(TestCase):
 
@@ -50,6 +68,59 @@ class CustomExceptionHandlerTests(TestCase):
         self.assertEqual(response.data["error"], "Validation error.")
         self.assertIn("field_name", response.data["details"])
         self.assertEqual(response.data["status_code"], 400)
+
+    def test_django_non_field_validation_error_is_structured(self):
+        response = custom_exception_handler(
+            DjangoValidationError(["A general validation error."]),
+            {},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.data["details"],
+            {"non_field_errors": ["A general validation error."]},
+        )
+
+    def test_rest_framework_detail_and_field_errors_are_structured(self):
+        request = Request(APIRequestFactory().post("/api/v1/students/"))
+
+        detail_response = custom_exception_handler(
+            exceptions.APIException("Request could not be processed."),
+            {"request": request},
+        )
+        self.assertEqual(
+            detail_response.data["error"],
+            "Request could not be processed.",
+        )
+        self.assertEqual(detail_response.data["status_code"], 500)
+
+        field_response = custom_exception_handler(
+            exceptions.ValidationError({"name": ["This field is required."]}),
+            {"request": request},
+        )
+        self.assertEqual(field_response.data["error"], "Validation failed.")
+        self.assertIn("name", field_response.data["details"])
+
+    def test_rest_framework_list_errors_and_authentication_status_are_structured(self):
+        request = Request(APIRequestFactory().get("/api/v1/auth/me/"))
+        list_response = custom_exception_handler(
+            exceptions.ValidationError(["A request-level error."]),
+            {"request": request},
+        )
+        self.assertEqual(
+            list_response.data["details"],
+            {"non_field_errors": ["A request-level error."]},
+        )
+
+        auth_response = custom_exception_handler(
+            exceptions.NotAuthenticated("Sign in is required."),
+            {"request": request},
+        )
+        self.assertEqual(auth_response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(auth_response.data["status_code"], 401)
+
+    def test_unhandled_exception_returns_no_rest_framework_response(self):
+        self.assertIsNone(custom_exception_handler(ValueError("bad data"), {}))
 
 
 class APIAuthenticationTests(TestCase):
@@ -331,6 +402,113 @@ class APIPermissionClassesTests(TestCase):
         # Student can only access own object
         self.assertTrue(perm.has_object_permission(self.student_req, None, self.student_record))
         self.assertFalse(perm.has_object_permission(self.student_req, None, other_student))
+
+        self.assertFalse(perm.has_object_permission(self.student_req, None, {}))
+
+    def test_student_allocation_ownership_and_missing_student_link(self):
+        hostel = Hostel.objects.create(
+            hostel_id="PERM-H-01",
+            name="Permission Hostel",
+            block_location="North",
+        )
+        room = Room.objects.create(
+            room_id="PERM-R-01",
+            hostel=hostel,
+            room_no="101",
+            room_type="Single",
+            capacity=1,
+        )
+        own_allocation = Allocation.objects.create(
+            student=self.student_record,
+            room=room,
+            allocation_date=timezone.localdate(),
+        )
+        other_student = Student.objects.create(
+            student_id="STUDENT-PERM-OTHER",
+            name="Other Perm Student",
+            contact="3333333333",
+            course_program="CS",
+            year=1,
+        )
+        other_allocation = Allocation.objects.create(
+            student=other_student,
+            room=Room.objects.create(
+                room_id="PERM-R-02",
+                hostel=hostel,
+                room_no="102",
+                room_type="Single",
+                capacity=1,
+            ),
+            allocation_date=timezone.localdate(),
+        )
+
+        permission = IsOwnerStudentOrStaff()
+        self.assertTrue(
+            permission.has_object_permission(self.student_req, None, own_allocation)
+        )
+        self.assertFalse(
+            permission.has_object_permission(self.student_req, None, other_allocation)
+        )
+
+        RoleProfile.objects.filter(user=self.student_user).update(student=None)
+        self.student_user.refresh_from_db()
+        self.assertFalse(
+            permission.has_object_permission(self.student_req, None, self.student_record)
+        )
+
+    def test_has_hms_role_rejects_users_without_a_role(self):
+        user_without_role = User.objects.create_user(username="no_hms_role")
+
+        class Request:
+            user = user_without_role
+
+        self.assertFalse(HasHMSRole().has_permission(Request(), None))
+
+    def test_anonymous_permission_checks_are_rejected(self):
+        class Request:
+            user = AnonymousUser()
+
+        request = Request()
+        with self.assertRaises(exceptions.NotAuthenticated):
+            HasHMSRole().has_permission(request, None)
+        self.assertFalse(
+            IsOwnerStudentOrStaff().has_object_permission(
+                request,
+                None,
+                self.student_record,
+            )
+        )
+
+
+class RoleProfileValidationTests(TestCase):
+    def test_student_role_requires_a_linked_student_record(self):
+        user = User.objects.create_user(username="unlinked_student_profile")
+        profile = RoleProfile(user=user, role=RoleProfile.Role.STUDENT)
+
+        with self.assertRaises(DjangoValidationError) as raised:
+            profile.clean()
+
+        self.assertIn("student", raised.exception.message_dict)
+
+    def test_staff_role_rejects_a_linked_student_record(self):
+        user = User.objects.create_user(username="linked_staff_profile")
+        student = Student.objects.create(
+            student_id="ROLE-VALIDATION-01",
+            name="Role Validation Student",
+            contact="4444444444",
+            course_program="CS",
+            year=1,
+        )
+        profile = RoleProfile(
+            user=user,
+            role=RoleProfile.Role.WARDEN,
+            student=student,
+        )
+
+        with self.assertRaises(DjangoValidationError) as raised:
+            profile.clean()
+
+        self.assertIn("student", raised.exception.message_dict)
 
 
 class StudentAPITests(TestCase):
