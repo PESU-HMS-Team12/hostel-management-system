@@ -1,8 +1,10 @@
+from auditlog.models import AuditLog
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.template import response
 from django.test import TestCase
 from django.urls import reverse
+
 
 from students.models import Student
 from .models import RoleProfile
@@ -64,6 +66,31 @@ class AuthenticationTests(TestCase):
         self.assertContains(response, "Invalid username/email or password.")
 
         self.assertNotIn("_auth_user_id", self.client.session)
+
+    def test_login_with_unknown_email_is_rejected(self):
+        response = self.client.post(
+            reverse("login"),
+            {
+                "username": "does-not-exist@example.com",
+                "password": "TestPassword!482",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Invalid username/email or password.")
+        self.assertNotIn("_auth_user_id", self.client.session)
+
+    def test_login_rejects_external_next_url(self):
+        response = self.client.post(
+            reverse("login"),
+            {
+                "username": "warden_test",
+                "password": "TestPassword!482",
+                "next": "https://evil.example/steal-session",
+            },
+        )
+
+        self.assertRedirects(response, reverse("dashboard"))
 
     def test_user_without_role_cannot_log_in(self):
         unconfigured_user = User.objects.create_user(
@@ -269,6 +296,30 @@ class RoleAuthorizationTests(TestCase):
         self.assertNotContains(response, "Another Student Hostel")
         self.assertNotContains(response, "P103")
 
+    def test_dashboard_logs_out_user_without_hms_role(self):
+        unconfigured_user = User.objects.create_user(
+            username="no_role_dashboard_test",
+            password="TestPassword!482",
+        )
+        self.client.force_login(unconfigured_user)
+
+        response = self.client.get(reverse("dashboard"))
+
+        self.assertRedirects(response, reverse("login"))
+        self.assertNotIn("_auth_user_id", self.client.session)
+
+    def test_non_student_cannot_access_student_profile_page(self):
+        self.client.force_login(self.warden)
+
+        response = self.client.get(reverse("my_profile"))
+
+        self.assertEqual(response.status_code, 403)
+        self.assertContains(
+            response,
+            "Only Student accounts can access this page.",
+            status_code=403,
+        )
+
     def test_student_cannot_access_staff_student_list(self):
         self.client.force_login(self.student_user)
 
@@ -297,3 +348,74 @@ class RoleAuthorizationTests(TestCase):
             get_user_role(self.admin_user),
             RoleProfile.Role.ADMINISTRATOR,
         )
+class RoleProfileAdminAuditTests(TestCase):
+
+    def setUp(self):
+        self.admin_user = User.objects.create_superuser(
+            username="role_admin_test",
+            email="roleadmin@example.com",
+            password="TestPassword!482",
+        )
+
+        self.target_user = User.objects.create_user(
+            username="role_target_test",
+            password="TestPassword!482",
+        )
+
+        self.client.force_login(self.admin_user)
+
+    def test_admin_role_creation_is_audited(self):
+        response = self.client.post(
+            reverse("admin:accounts_roleprofile_add"),
+            {
+                "user": self.target_user.pk,
+                "role": RoleProfile.Role.WARDEN,
+                "student": "",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+
+        profile = RoleProfile.objects.get(user=self.target_user)
+
+        audit = AuditLog.objects.get(
+            entity_type="RoleProfile",
+            record_id=str(profile.pk),
+        )
+
+        self.assertEqual(audit.user, self.admin_user)
+        self.assertEqual(audit.action_type, "CREATE")
+
+    def test_admin_role_modification_is_audited(self):
+        profile = RoleProfile.objects.create(
+            user=self.target_user,
+            role=RoleProfile.Role.WARDEN,
+        )
+
+        response = self.client.post(
+            reverse(
+                "admin:accounts_roleprofile_change",
+                args=[profile.pk],
+            ),
+            {
+                "user": self.target_user.pk,
+                "role": RoleProfile.Role.ADMINISTRATOR,
+                "student": "",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+
+        profile.refresh_from_db()
+        self.assertEqual(
+            profile.role,
+            RoleProfile.Role.ADMINISTRATOR,
+        )
+
+        audit = AuditLog.objects.get(
+            entity_type="RoleProfile",
+            record_id=str(profile.pk),
+        )
+
+        self.assertEqual(audit.user, self.admin_user)
+        self.assertEqual(audit.action_type, "UPDATE")
