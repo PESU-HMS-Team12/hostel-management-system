@@ -1,19 +1,23 @@
 [run]
 branch = True
 relative_files = True
-source =
-    accounts
-    allocations
-    api
-    auditlog
-    config
-    hostels
-    students
+source = .
 omit =
     */migrations/*
     */tests.py
     */test_*.py
     */*_tests.py
+    */manage.py
+    */scripts/*
+    */frontend/*
+    */node_modules/*
+    */.next/*
+    */.venv*/*
+    */venv/*
+    */.git/*
+    */htmlcov/*
+    */staticfiles/*
+    */.tmp/*
 
 [report]
 show_missing = True

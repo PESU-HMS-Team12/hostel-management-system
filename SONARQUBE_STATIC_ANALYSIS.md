@@ -1,66 +1,33 @@
 # SonarQube Cloud Static Analysis Status
 
-## Scope
-
-This report records the repository configuration and the evidence available
-for SonarQube Cloud analysis. It does not claim that a Cloud scan was executed.
-
-## Configured analysis
+## Scope and configuration
 
 - Configuration: `sonar-project.properties`.
-- Organization/project keys: `pesu-hms-team12` /
-  `PESU-HMS-Team12_hostel-management-system`, retained from existing repository
-  configuration. They have not been verified against an accessible Cloud
-  account in this task.
+- Organization/project keys: `pesu-hms-team12` / `PESU-HMS-Team12_hostel-management-system`, confirmed by the project owner and accepted by the executed scanner.
+- The scanner reported the GitHub ALM binding as `BOUND`.
 - Source scope: Django application packages and `frontend/src`.
 - Test scope: Django test modules and `frontend/tests`.
-- Coverage inputs: `coverage.xml` for Python and
-  `frontend/coverage/lcov.info` for JavaScript/TypeScript.
-- CI configuration: `.github/workflows/ci.yml` downloads backend and frontend
-  coverage artifacts before invoking `SonarSource/sonarqube-scan-action@v8.3.0`.
-  The scanner waits for the quality gate and requires `SONAR_TOKEN`.
-- Generated/dependency artifacts and Django migration history are excluded;
-  project-owned application source is retained.
+- Coverage inputs: `coverage.xml` for Python and `frontend/coverage/lcov.info` for JavaScript/TypeScript.
+- CI configuration: `.github/workflows/ci.yml` downloads both reports before `SonarSource/sonarqube-scan-action@v8.3.0`; the token is referenced as `${{ secrets.SONAR_TOKEN }}` and its value was not accessed.
+- Generated/dependency artifacts and Django migration history are excluded; project-owned application source is retained.
 
-## Local validation and Cloud results
+## First Cloud analysis
 
-The repository's documented local validations are Python `manage.py check`,
-the backend Django test suite under coverage, TypeScript `npx tsc --noEmit`,
-ESLint, frontend tests under c8, and the Next.js production build. These checks
-are not a SonarQube analysis and do not provide Sonar issue counts.
+The supplied GitHub Actions log shows SonarScanner CLI 8.1.0.6389 on `main`, analyzing commit `b01d6369723ffada0bee3b65d2ceb2f1f8f2cd81`. It detected five languages and indexed 137 files; Python analysis covered 67 source files.
 
-No SonarQube Cloud scan was executed in this task: authenticated account/project
-access and a `SONAR_TOKEN` value were unavailable for verification. Therefore:
+- The Python Cobertura sensor parsed `coverage.xml`, but could not resolve 7 file paths because entries such as `__init__.py` were ambiguous across the package source roots. Coverage measures for those paths were ignored.
+- The JavaScript/TypeScript coverage sensor opened `frontend/coverage/lcov.info` and completed. The supplied log does not show its imported percentage.
+- The analysis report uploaded, but the quality gate **failed**. The supplied scanner log does not identify the individual failed conditions.
+- Sonar bugs, vulnerabilities, hotspots, code smells, maintainability rating and duplication counts are not present in the supplied log; they require project dashboard access.
 
-| Measure | Result |
-| --- | --- |
-| Sonar bugs | Unavailable — analysis not run |
-| Sonar vulnerabilities | Unavailable — analysis not run |
-| Security hotspots and review status | Unavailable — analysis not run |
-| Code smells / maintainability rating | Unavailable — analysis not run |
-| Duplication | Unavailable — analysis not run |
-| Coverage imported by Sonar | Not verified; local coverage reports are documented in `AUTOMATED_TEST_COVERAGE.md` |
-| Quality gate outcome | Unavailable — analysis not run |
+Dashboard from the scanner log: <https://sonarcloud.io/dashboard?id=PESU-HMS-Team12_hostel-management-system&branch=main>.
 
-The workflow's Sonar job is configured, but a successful Cloud scan depends on
-valid project binding/keys and the `SONAR_TOKEN` repository secret. Workflow
-configuration is not evidence of a successful scan.
+## Python coverage path correction
 
-## Setup required before first Cloud result
+The previous `.coveragerc` listed each Django package as a separate coverage source root. Coverage.py therefore emitted repeated basenames such as `__init__.py`, which Sonar could not uniquely map to indexed files. The correction changes the source root to the repository (`source = .`) and omits tests, migrations, tooling, frontend, dependencies and generated directories while retaining the Django application packages.
 
-1. Import/bind this GitHub repository in SonarQube Cloud and verify the
-   organization and project keys against the account.
-2. Configure the intended Quality Gate and new-code definition in the Cloud
-   project. The repository configuration makes CI wait for the resulting gate;
-   gate assignment is an account-level setting.
-3. Add a valid `SONAR_TOKEN` in GitHub repository Actions secrets.
-4. Run the workflow and retain its scanner log and Cloud analysis link. Record
-   issue counts and the gate result only from that completed analysis.
+I validated the corrected configuration against existing local coverage data. Its Cobertura XML contained 61 class entries, paths such as `accounts/views.py`, and zero basename-only paths. This validates the report path shape only; it does not represent a new test execution or a successful Sonar import. A subsequent CI analysis must confirm the fix and reevaluate the quality gate.
 
 ## Coverage baseline
 
-The separately executed local coverage baseline is in
-`AUTOMATED_TEST_COVERAGE.md`: Python 89.96% statements and 70.05% branches on
-PostgreSQL 16, and frontend 71.19% statements. Those values are local
-coverage.py/c8 measurements; they should not be represented as imported Sonar
-coverage until a Cloud analysis confirms the import.
+The separately executed local baseline is documented in `AUTOMATED_TEST_COVERAGE.md`: Python 89.96% statements and 70.05% branches on PostgreSQL 16, and frontend 71.19% statements. These local coverage.py/c8 results should not be represented as successfully imported Sonar coverage. The first Sonar analysis partially resolved Python coverage and read the frontend LCOV input; import confirmation for corrected Python paths and the quality gate are pending another scan.
