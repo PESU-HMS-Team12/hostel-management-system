@@ -67,6 +67,31 @@ class AuthenticationTests(TestCase):
 
         self.assertNotIn("_auth_user_id", self.client.session)
 
+    def test_login_with_unknown_email_is_rejected(self):
+        response = self.client.post(
+            reverse("login"),
+            {
+                "username": "does-not-exist@example.com",
+                "password": "TestPassword!482",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Invalid username/email or password.")
+        self.assertNotIn("_auth_user_id", self.client.session)
+
+    def test_login_rejects_external_next_url(self):
+        response = self.client.post(
+            reverse("login"),
+            {
+                "username": "warden_test",
+                "password": "TestPassword!482",
+                "next": "https://evil.example/steal-session",
+            },
+        )
+
+        self.assertRedirects(response, reverse("dashboard"))
+
     def test_user_without_role_cannot_log_in(self):
         unconfigured_user = User.objects.create_user(
             username="unconfigured_test",
@@ -270,6 +295,30 @@ class RoleAuthorizationTests(TestCase):
         )
         self.assertNotContains(response, "Another Student Hostel")
         self.assertNotContains(response, "P103")
+
+    def test_dashboard_logs_out_user_without_hms_role(self):
+        unconfigured_user = User.objects.create_user(
+            username="no_role_dashboard_test",
+            password="TestPassword!482",
+        )
+        self.client.force_login(unconfigured_user)
+
+        response = self.client.get(reverse("dashboard"))
+
+        self.assertRedirects(response, reverse("login"))
+        self.assertNotIn("_auth_user_id", self.client.session)
+
+    def test_non_student_cannot_access_student_profile_page(self):
+        self.client.force_login(self.warden)
+
+        response = self.client.get(reverse("my_profile"))
+
+        self.assertEqual(response.status_code, 403)
+        self.assertContains(
+            response,
+            "Only Student accounts can access this page.",
+            status_code=403,
+        )
 
     def test_student_cannot_access_staff_student_list(self):
         self.client.force_login(self.student_user)
