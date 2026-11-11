@@ -8,9 +8,11 @@ on:
       - "feat/*"
       - "fix/*"
       - "chore/*"
+      - "kanishk/**"
   pull_request:
     branches:
       - main
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
