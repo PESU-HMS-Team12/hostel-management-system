@@ -1,5 +1,7 @@
 # SonarQube Cloud Static Analysis Status
 
+**Jira task:** HMS-37 - Quality assurance
+
 ## Scope and configuration
 
 - Configuration: `sonar-project.properties`.
