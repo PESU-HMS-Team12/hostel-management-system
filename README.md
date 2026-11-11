@@ -19,6 +19,8 @@ A comprehensive web-based Hostel Management System for managing students, hostel
 - [Software Test Plan (STP)](12_STP.pdf)
 - [HMS-13 Test Plan Addendum](HMS-13_TEST_PLAN_ADDENDUM.md)
 - [Sprint 1 Test Validation](SPRINT1_TEST_VALIDATION.md)
+- [Automated Test and Coverage Results](AUTOMATED_TEST_COVERAGE.md)
+- [SonarQube Cloud Static Analysis Status](SONARQUBE_STATIC_ANALYSIS.md)
 
 ---
 
@@ -184,14 +186,22 @@ Open [http://localhost:3000](http://localhost:3000). Unauthenticated visitors ar
 
 ## Testing & Quality Assurance
 
+The current executed test results and SRS traceability are documented in
+[`AUTOMATED_TEST_COVERAGE.md`](AUTOMATED_TEST_COVERAGE.md) and the complete
+30-requirement RTM in [`HMS-13_TEST_PLAN_ADDENDUM.md`](HMS-13_TEST_PLAN_ADDENDUM.md).
+
 ### Backend Verification
 
 ```bash
-python manage.py check
-python manage.py makemigrations --check --dry-run
-python manage.py spectacular --validate --file schema.yml
 python manage.py collectstatic --noinput
-python manage.py test
+python manage.py makemigrations --check --dry-run
+python -m coverage erase
+python -m coverage run manage.py test
+python -m coverage report
+python -m coverage html
+python -m coverage xml -o coverage.xml
+python -m coverage json -o coverage.json
+python scripts/check_coverage.py coverage.json
 ```
 
 ### Frontend Verification
@@ -201,9 +211,13 @@ cd frontend
 npm ci
 npm run lint
 npx tsc --noEmit
-npm test
+npm run test:coverage
 npm run build
 ```
+
+Backend thresholds are 80% statements and 70% branches. Frontend statement
+coverage threshold is 70%. Reports are written to `htmlcov/`, `coverage.xml`,
+`coverage.json`, and `frontend/coverage/` (HTML, LCOV, and JSON summary).
 
 ---
 
@@ -221,20 +235,18 @@ The repository implements an automated GitHub Actions CI/CD workflow defined in 
   4. Applies migrations to PostgreSQL (`python manage.py migrate`).
   5. Validates OpenAPI 3.0 schema generation (`python manage.py spectacular --validate --file schema.yml`).
   6. Collects static assets (`python manage.py collectstatic --noinput`).
-  7. Runs the entire 100-test suite against PostgreSQL under `coverage.py`.
-  8. Exports coverage report to `coverage.xml`.
-  9. Uploads `coverage.xml` as a GitHub Actions artifact (`backend-coverage-report`).
-  10. Executes SonarCloud code quality & security scanning.
+  7. Runs the Django suite against PostgreSQL under `coverage.py` and enforces statement/branch thresholds.
+  8. Uploads HTML, XML, and JSON coverage reports as `backend-coverage-report`.
 
 ### 2. Frontend CI (`frontend`)
 - **Status:** **Active** (integrated with Next.js 16 frontend in `frontend/`).
-- **Workflow:** Runs on Node.js 22 LTS with `npm` dependency caching, executing `npm ci`, ESLint (`npm run lint`), TypeScript verification (`npx tsc --noEmit`), automated test suite (`npm test`), and Next.js production build (`npm run build`).
+- **Workflow:** Runs on Node.js 22 LTS with `npm` dependency caching, executing `npm ci`, ESLint (`npm run lint`), TypeScript verification (`npx tsc --noEmit`), tests with the 70% coverage gate (`npm run test:coverage`), uploads HTML/LCOV/JSON reports, and builds Next.js.
 
 ### 3. SonarCloud Code Analysis
 - **Organization:** `pesu-hms-team12`
 - **Project Key:** `PESU-HMS-Team12_hostel-management-system`
 - **Configuration:** [`sonar-project.properties`](sonar-project.properties)
-- **Required GitHub Secret:** `SONAR_TOKEN` configured in **GitHub > Settings > Secrets and variables > Actions**.
+- **CI:** The SonarCloud job is configured after backend and frontend report artifacts are available. Its first scan requires a valid `SONAR_TOKEN` secret and verified organization/project keys; no successful Cloud analysis is claimed yet. See [`SONARQUBE_STATIC_ANALYSIS.md`](SONARQUBE_STATIC_ANALYSIS.md).
 
 ---
 

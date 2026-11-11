@@ -110,7 +110,7 @@ Never commit `.env` or production secrets into source control. Store secrets in 
 | `CONN_MAX_AGE` | Production / CI | No | Persistent DB connection timeout (seconds). Defaults to `600` in production, `0` in test runs. |
 | `INTERNAL_API_URL` | Frontend Container | No | Container-to-container backend endpoint for Next.js rewrites (`http://web:8000`). |
 | `NEXT_PUBLIC_API_URL` | Frontend Client | No | Relative API base URL for browser calls (`/api/v1`). |
-| `SONAR_TOKEN` | CI/CD | Yes | SonarCloud project token stored in GitHub Secrets. |
+| `SONAR_TOKEN` | CI/CD | Required to run SonarCloud job | SonarCloud token stored in GitHub Actions Secrets; setup and first analysis remain to be verified. |
 
 ---
 
@@ -142,10 +142,10 @@ Every push and pull request triggers `.github/workflows/ci.yml`:
 3. Verifies migration consistency via `python manage.py makemigrations --check --dry-run`.
 4. Applies migrations to PostgreSQL.
 5. Validates OpenAPI 3.0 schema generation.
-6. Runs the entire 100-test suite under `coverage.py` against PostgreSQL.
-7. Generates and uploads `coverage.xml`.
-8. Executes SonarCloud quality analysis.
-9. Automatically tests the Next.js frontend when merged.
+6. Runs Django tests under `coverage.py` against PostgreSQL and enforces 80% statement and 70% branch coverage.
+7. Generates and uploads HTML, XML, and JSON backend coverage reports.
+8. Runs frontend tests with a 70% statement-coverage gate and uploads HTML, LCOV, and JSON summary reports.
+9. The configured SonarCloud job downloads both coverage artifacts and waits for the Cloud quality gate; it requires `SONAR_TOKEN` and a valid imported project.
 
 ### 5.2 Safe Database Migration Strategy
 
@@ -275,8 +275,8 @@ Navigate to **GitHub Repository Settings > Branches > Add branch protection rule
 1. In the SonarCloud project dashboard (`pesu-hms-team12`):
    - Set Quality Gate to **Sonar way** or custom project gate.
    - Enforce:
-     - **Coverage on New Code:** >= 80%
-     - **Duplicated Lines on New Code:** < 3%
+   - **Coverage on New Code:** >= 80%
+   - **Duplicated Lines on New Code:** <= 3.0%
      - **Maintainability Rating:** A
      - **Reliability Rating:** A
      - **Security Rating:** A
@@ -284,3 +284,9 @@ Navigate to **GitHub Repository Settings > Branches > Add branch protection rule
 2. Store the SonarCloud organization token as a GitHub Actions secret:
    - Name: `SONAR_TOKEN`
    - Location: **GitHub > Settings > Secrets and variables > Actions > New repository secret**.
+
+The repository's prior organization and project keys are retained in
+`sonar-project.properties`, but account access was unavailable for this
+configuration task. Verify those keys, bind/import the GitHub repository in
+SonarQube Cloud, assign the gate, and add the secret before treating analysis as
+active. See `SONARQUBE_STATIC_ANALYSIS.md` for current evidence and setup status.

@@ -1,5 +1,12 @@
 # Sprint 1 Test Validation and Traceability Update
 
+> **Historical snapshot:** the execution counts and HMS-SR-005 blocker below
+> describe the earlier Sprint 1 run only. They predate the current automated
+> audit coverage and PostgreSQL run. The current requirement-by-requirement
+> status is in `HMS-13_TEST_PLAN_ADDENDUM.md`; HMS-SR-005 remains partially
+> verified because complete field and credential-exclusion assertions are not
+> present.
+
 ## Requirements Traceability Matrix update
 
 This addendum updates the relevant rows in the RTM embedded in Section 8 of
