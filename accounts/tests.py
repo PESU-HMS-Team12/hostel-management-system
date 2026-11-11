@@ -1,8 +1,10 @@
+from auditlog.models import AuditLog
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.template import response
 from django.test import TestCase
 from django.urls import reverse
+
 
 from students.models import Student
 from .models import RoleProfile
@@ -297,3 +299,74 @@ class RoleAuthorizationTests(TestCase):
             get_user_role(self.admin_user),
             RoleProfile.Role.ADMINISTRATOR,
         )
+class RoleProfileAdminAuditTests(TestCase):
+
+    def setUp(self):
+        self.admin_user = User.objects.create_superuser(
+            username="role_admin_test",
+            email="roleadmin@example.com",
+            password="TestPassword!482",
+        )
+
+        self.target_user = User.objects.create_user(
+            username="role_target_test",
+            password="TestPassword!482",
+        )
+
+        self.client.force_login(self.admin_user)
+
+    def test_admin_role_creation_is_audited(self):
+        response = self.client.post(
+            reverse("admin:accounts_roleprofile_add"),
+            {
+                "user": self.target_user.pk,
+                "role": RoleProfile.Role.WARDEN,
+                "student": "",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+
+        profile = RoleProfile.objects.get(user=self.target_user)
+
+        audit = AuditLog.objects.get(
+            entity_type="RoleProfile",
+            record_id=str(profile.pk),
+        )
+
+        self.assertEqual(audit.user, self.admin_user)
+        self.assertEqual(audit.action_type, "CREATE")
+
+    def test_admin_role_modification_is_audited(self):
+        profile = RoleProfile.objects.create(
+            user=self.target_user,
+            role=RoleProfile.Role.WARDEN,
+        )
+
+        response = self.client.post(
+            reverse(
+                "admin:accounts_roleprofile_change",
+                args=[profile.pk],
+            ),
+            {
+                "user": self.target_user.pk,
+                "role": RoleProfile.Role.ADMINISTRATOR,
+                "student": "",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+
+        profile.refresh_from_db()
+        self.assertEqual(
+            profile.role,
+            RoleProfile.Role.ADMINISTRATOR,
+        )
+
+        audit = AuditLog.objects.get(
+            entity_type="RoleProfile",
+            record_id=str(profile.pk),
+        )
+
+        self.assertEqual(audit.user, self.admin_user)
+        self.assertEqual(audit.action_type, "UPDATE")
